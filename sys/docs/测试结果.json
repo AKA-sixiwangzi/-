@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-16",
+  "build": "mvn verify",
+  "targetJava": 17,
+  "buildJdk": 21,
+  "summary": {
+    "tests": 50,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 49
+  },
+  "suites": [
+    {
+      "name": "com.xuri.training.MapperConfigurationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.SqlServerSmokeTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1
+    },
+    {
+      "name": "com.xuri.training.UtcTimestampTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.WebAuthorizationTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.service.AiAndImportTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.service.CourseAccessTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.service.ExamSecurityTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.service.LearningServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.service.PlaybackRulesTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.service.ProgramRulesTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.training.service.WarningWorkflowTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "com.xuri.validation.ApplicationContextTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "limits": [
+    "SQL Server连接和实际SQL执行未验证，专用探测测试未配置连接而跳过",
+    "未配置真实AI服务，未验证模型输出",
+    "未进行带真实数据库的Tomcat和浏览器端到端联调"
+  ]
+}
