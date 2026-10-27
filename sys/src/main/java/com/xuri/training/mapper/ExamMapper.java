@@ -4,6 +4,8 @@ import java.util.*;
 import org.apache.ibatis.annotations.*;
 
 public interface ExamMapper {
+  @Select("SELECT TOP(200) * FROM exam WHERE owner_id=#{owner} OR #{admin}=1 ORDER BY id DESC")
+  List<Map<String, Object>> managed(@Param("owner") long owner, @Param("admin") boolean admin);
   @Insert(
       "INSERT INTO"
           + " question(course_id,owner_id,type,stem,options_json,answer,explanation,source,status)"

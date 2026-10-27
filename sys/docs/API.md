@@ -172,6 +172,8 @@ GET /dashboards/personal只查本人；GET /dashboards/teaching只查自己课�
 
 ## 完整接口索引
 
+2026-10-27补充：`GET /api/teaching/exams` 返回当前用户安排的考试列表，管理员可查看全部，单次最多200条。此接口用于Vue“考试安排”和“培训计划关联考试”。
+
 下表由本次控制器源码生成。参数详细字段以Requests.java记录类型及上述业务示例为准。
 
 | 方法 | 路径（含/api） | JSON请求类型 |

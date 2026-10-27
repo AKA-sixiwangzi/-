@@ -130,6 +130,11 @@ public class ExamController {
     return db.pending(Current.actor().id(), Current.actor().admin());
   }
 
+  @GetMapping("/teaching/exams")
+  public Object managedExams() {
+    return db.managed(Current.actor().id(), Current.actor().admin());
+  }
+
   @GetMapping("/teaching/attempts/{id}")
   public Object grading(@PathVariable String id) {
     return service.gradingView(id);

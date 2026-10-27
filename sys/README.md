@@ -1,6 +1,8 @@
 # 旭日企业培训系统 · SSM 后端
 
-传统 Spring + Spring MVC + MyBatis，SQL Server 数据库，WAR 部署到 Tomcat。未使用 Spring Boot。前端契约按 Vue 3 设计；本交付不含 Vue 页面。
+传统 Spring + Spring MVC + MyBatis，SQL Server 数据库，WAR 部署到 Tomcat。未使用 Spring Boot。Vue 3前端位于仓库的 [frontend](../frontend/README.md)，离线体验位于 [demo](../demo/使用说明.txt)。
+
+2026-10-27：为前端考试管理增加 `GET /api/teaching/exams`。讲师仅查询本人安排的考试，管理员可查询全部；使用旧版后端时请重新构建并部署。
 
 ## 已实现的后端范围
 

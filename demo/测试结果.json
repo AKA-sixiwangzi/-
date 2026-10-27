@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-27",
+  "frontend_unit": {
+    "passed": 11,
+    "failed": 0
+  },
+  "backend": {
+    "tests": 50,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "build": "npm run build passed",
+  "checks": {
+    "demo_browser": {
+      "checks": [
+        "/",
+        "/courses",
+        "/paths",
+        "/plans",
+        "/results",
+        "/creation",
+        "/messages",
+        "/settings",
+        "/teaching",
+        "员工直达授课页被权限拦截",
+        "/exams",
+        "答题自动保存、交卷并判分通过",
+        "/courses/1",
+        "真实视频播放产生有效时长 10.1秒",
+        "普通拖动提示与事件记录",
+        "多标签页播放被阻止并生成预警",
+        "/creation",
+        "员工新建课程、上传视频、添加讲义和提交审核",
+        "/teaching",
+        "/assessment",
+        "讲师题库、试卷、考试安排与阅卷页面",
+        "/company",
+        "/manage/plans",
+        "/manage/paths",
+        "/users",
+        "/reviews",
+        "管理员审核员工课程发布",
+        "原员工账号新增讲师工作区",
+        "/warnings",
+        "/warnings",
+        "预警核实、措施、另一管理员复核关闭",
+        "/",
+        "390px移动端无横向溢出且导航可用"
+      ],
+      "errors": [],
+      "warnings": []
+    },
+    "http_contract_browser": {
+      "checks": [
+        "未登录进入登录页",
+        "登录失败明确报错且不回退演示",
+        "登录后使用Bearer头请求真实接口适配",
+        "后端模式不显示演示身份选择器",
+        "员工无权直达公司看板且不发起公司接口",
+        "503显示后端错误不补充演示课程",
+        "后端不可用时仍能主动切换演示"
+      ],
+      "errors": []
+    },
+    "single_file_offline": {
+      "checks": [
+        "单文件通过HTTP加载后断网运行；环境禁止file协议，未直接验证双击",
+        "内嵌视频播放且无需外部资源",
+        "离线页面hash路由正常",
+        "离线角色切换和组织角色对话框",
+        "离线管理员公司看板",
+        "390px手机页面与导航"
+      ],
+      "errors": [],
+      "warnings": [],
+      "externalRequests": []
+    }
+  },
+  "limits": [
+    "file协议被环境策略禁止，未直接验证双击；通过HTTP加载单文件后断网检查",
+    "真实SQL Server与模型服务未配置，未做真实业务数据联调"
+  ]
+}
