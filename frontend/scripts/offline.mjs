@@ -30,7 +30,7 @@ for (const match of [...html.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*href="([
 }
 html = html.replace(/<link\b[^>]*rel="modulepreload"[^>]*>/g, '')
 await mkdir('preview', { recursive: true })
-await writeFile('preview/旭日学堂-离线演示.html', html)
+await writeFile('preview/旭能学院-离线演示.html', html)
 await mkdir('../demo', { recursive: true })
-await writeFile('../demo/旭日学堂-离线演示.html', html)
-console.log('离线演示已生成：preview/旭日学堂-离线演示.html（双击打开，无需Node.js或数据库）')
+await writeFile('../demo/旭能学院-离线演示.html', html)
+console.log('离线演示已生成：preview/旭能学院-离线演示.html（双击打开，无需Node.js或数据库）')
