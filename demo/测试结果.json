@@ -80,5 +80,14 @@
   "limits": [
     "file协议被环境策略禁止，未直接验证双击；通过HTTP加载单文件后断网检查",
     "真实SQL Server与模型服务未配置，未做真实业务数据联调"
-  ]
+  ],
+  "branding_update": {
+    "date": "2026-11-05",
+    "name": "旭能学院",
+    "english": "XUNENG ACADEMY",
+    "validation": "source and prebuilt HTML text readback only",
+    "build_rerun": false,
+    "browser_rerun": false,
+    "screenshots": "historical, before rename"
+  }
 }
