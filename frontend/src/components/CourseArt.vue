@@ -52,6 +52,6 @@ defineProps({ tone: { default: 'safety' }, category: String })
         stroke-width="5"
         stroke-linecap="round"
       /></svg
-    ><span class="art-edition">XURI · LEARNING</span>
+    ><span class="art-edition">XUNENG · LEARNING</span>
   </div>
 </template>
