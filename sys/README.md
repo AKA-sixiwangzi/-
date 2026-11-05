@@ -1,4 +1,4 @@
-# 旭日企业培训系统 · SSM 后端
+# 旭能学院 · SSM 后端
 
 传统 Spring + Spring MVC + MyBatis，SQL Server 数据库，WAR 部署到 Tomcat。未使用 Spring Boot。Vue 3前端位于仓库的 [frontend](../frontend/README.md)，离线体验位于 [demo](../demo/使用说明.txt)。
 
