@@ -121,7 +121,7 @@ async function apply() {
   <section class="panel section-spacer">
     <h2>在你的电脑上运行</h2>
     <p class="prose section-spacer">
-      离线体验：双击“旭日学堂-离线演示.html”，无需Node.js、Maven或数据库。<br />源码开发：在
+      离线体验：双击“旭能学院-离线演示.html”，无需Node.js、Maven或数据库。<br />源码开发：在
       frontend 目录运行 npm ci，再运行 npm run dev，打开终端中的本地地址。<br />正式联调：启动Tomcat和SQL
       Server后，在本页切换后端模式；开发代理默认连接 localhost:8080/training/api。
     </p>
