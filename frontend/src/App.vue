@@ -89,7 +89,7 @@ async function leave() {
     <aside class="sidebar" :class="{ open: mobile }">
       <RouterLink to="/" class="brand"
         ><span class="brand-mark"><i /><i /><i /></span
-        ><span><strong>旭日学堂</strong><small>XURI ACADEMY</small></span></RouterLink
+        ><span><strong>旭能学院</strong><small>XUNENG ACADEMY</small></span></RouterLink
       >
       <div class="company-label">
         <Icon name="building" :size="15" /><span>企业学习与成长平台</span>
@@ -171,7 +171,7 @@ async function leave() {
         <RouterView :key="route.fullPath + '-' + session.demoId + '-' + session.mode" />
       </main>
       <footer class="page-footer">
-        <span>旭日学堂 · 让每一份努力，都被看见</span
+        <span>旭能学院 · 让每一份努力，都被看见</span
         ><span>{{
           session.mode === 'demo' ? '本地演示数据 · 不作为正式培训记录' : '学习结果以服务端校验为准'
         }}</span>
