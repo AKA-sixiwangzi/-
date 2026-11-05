@@ -18,7 +18,7 @@ async function submit() {
   <div class="login-layout">
     <section class="login-brand">
       <div>
-        <span class="hero-tag">XURI ACADEMY</span>
+        <span class="hero-tag">XUNENG ACADEMY</span>
         <h1>让每一份努力，<br />都有成长的回响。</h1>
         <p>围绕岗位，系统学习。<br />从知识到行动，让个人与企业共同向前。</p>
         <div class="btn-row section-spacer">
@@ -29,7 +29,7 @@ async function submit() {
     <section class="login-form">
       <div>
         <p class="eyebrow">WELCOME BACK</p>
-        <h2>欢迎回到旭日学堂</h2>
+        <h2>欢迎回到旭能学院</h2>
         <p>使用公司培训账号登录，开启今天的成长。</p>
         <form @submit.prevent="submit">
           <label class="field"
