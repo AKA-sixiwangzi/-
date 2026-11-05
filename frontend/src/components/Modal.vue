@@ -48,7 +48,7 @@ onUnmounted(() => {
       >
         <header>
           <div>
-            <small>旭日学堂</small>
+            <small>旭能学院</small>
             <h2>{{ title }}</h2>
           </div>
           <button class="icon-btn" aria-label="关闭" @click="emit('close')">
