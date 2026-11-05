@@ -25,7 +25,7 @@ public class IdentityController {
 
   @GetMapping("/health")
   public Object health() {
-    return Map.of("status", "UP", "application", "旭日培训", "architecture", "SSM");
+    return Map.of("status", "UP", "application", "旭能学院", "architecture", "SSM");
   }
 
   @PostMapping("/auth/login")
