@@ -1,6 +1,6 @@
-旭日学堂 · 离线演示
+旭能学院 · 离线演示
 
-双击同目录“旭日学堂-离线演示.html”，使用近期版本的Edge或Chrome打开即可。
+双击同目录“旭能学院-离线演示.html”，使用近期版本的Edge或Chrome打开即可。
 
 不需要安装Node.js，不需要Maven、Tomcat、SQL Server，也不需要联网。
 
