@@ -66,7 +66,12 @@ public final class Requests {
   public record WarningAction(
       @NotBlank String action, @NotBlank @Size(min = 5, max = 1800) String note) {}
 
-  public record Path(@NotBlank @Size(max = 200) String title, Long positionId, Long gradeId) {}
+  public record Path(
+      @NotBlank @Size(max = 200) String title,
+      Long positionId,
+      Long gradeId,
+      Boolean allDepartments,
+      @Size(max = 1000) List<@NotNull @Positive Long> departmentIds) {}
 
   public record Stage(
       @NotBlank @Size(max = 200) String title,

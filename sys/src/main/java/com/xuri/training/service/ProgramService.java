@@ -37,10 +37,68 @@ public class ProgramService {
 
   @Transactional
   public Map<String, Object> path(String title, Long position, Long grade) {
+    return path(title, position, grade, null, null);
+  }
+
+  @Transactional
+  public Map<String, Object> path(
+      String title, Long position, Long grade, Boolean allDepartments, List<Long> departmentIds) {
     Current.actor().requireAdmin();
-    Map<String, Object> r = row("title", title, "position_id", position, "grade_id", grade);
+    List<Long> requested = departmentIds == null ? List.of() : departmentIds;
+    Problem.require(
+        requested.size() <= 1000
+            && requested.stream().allMatch(id -> id != null && id > 0),
+        400,
+        "部门编号不合法");
+    Set<Long> departments = new TreeSet<>(requested);
+    boolean all = allDepartments == null ? departments.isEmpty() : allDepartments;
+    Problem.require(!all || departments.isEmpty(), 400, "选择所有部门时不能同时指定部门");
+    Problem.require(all || !departments.isEmpty(), 400, "请至少选择一个适用部门");
+    List<Map<String, Object>> applicable = new ArrayList<>();
+    if (!all) {
+      Map<Long, Map<String, Object>> existing = new HashMap<>();
+      for (Map<String, Object> department : users.departments()) {
+        existing.put(id(department, "id"), department);
+      }
+      for (long department : departments) {
+        Problem.require(existing.containsKey(department), 400, "所选部门不存在，请刷新部门列表");
+        Map<String, Object> found = existing.get(department);
+        applicable.add(row("id", department, "name", found.get("name")));
+      }
+    }
+    Map<String, Object> r =
+        row(
+            "title", title,
+            "position_id", position,
+            "grade_id", grade,
+            "all_departments", all);
     db.createPath(r);
+    for (long department : departments) db.pathDepartment(id(r, "id"), department);
+    r.put("department_ids", new ArrayList<>(departments));
+    r.put("departments", applicable);
     return r;
+  }
+
+  public List<Map<String, Object>> paths() {
+    return db.paths(Current.actor().admin(), Current.actor().id()).stream()
+        .map(this::withDepartmentScope)
+        .toList();
+  }
+
+  private boolean allDepartments(Map<String, Object> path) {
+    Object value = path.get("all_departments");
+    return value == null || Boolean.TRUE.equals(value)
+        || value instanceof Number number && number.intValue() != 0;
+  }
+
+  private Map<String, Object> withDepartmentScope(Map<String, Object> path) {
+    Map<String, Object> result = new HashMap<>(path);
+    boolean all = allDepartments(path);
+    List<Map<String, Object>> departments = all ? List.of() : db.pathDepartments(id(path, "id"));
+    result.put("all_departments", all);
+    result.put("departments", departments);
+    result.put("department_ids", departments.stream().map(d -> id(d, "id")).toList());
+    return result;
   }
 
   @Transactional
@@ -71,8 +129,25 @@ public class ProgramService {
     Current.actor().requireAdmin();
     Map<String, Object> p = found(db.lockPath(path));
     Problem.require(Boolean.TRUE.equals(p.get("published")), 409, "路线未发布");
-    for (long user : new TreeSet<>(ids)) {
-      found(users.lockUser(user));
+    Set<Long> members = new TreeSet<>(ids);
+    boolean all = allDepartments(p);
+    Set<Long> departments = new HashSet<>();
+    if (!all) {
+      for (Map<String, Object> department : db.pathDepartments(path)) {
+        departments.add(id(department, "id"));
+      }
+      Problem.require(!departments.isEmpty(), 409, "路线尚未配置适用部门");
+    }
+    // Lock and validate the whole batch before writing enrollments or sending notifications.
+    for (long user : members) {
+      Map<String, Object> employee = found(users.lockUser(user));
+      Object department = employee.get("department_id");
+      Problem.require(
+          all || department instanceof Number number && departments.contains(number.longValue()),
+          400,
+          "所选员工不在该路线的适用部门范围内");
+    }
+    for (long user : members) {
       db.assign(path, user);
       for (Map<String, Object> s : db.stages(path))
         for (Map<String, Object> c : db.stageCourses(id(s, "id"), user))
@@ -122,7 +197,7 @@ public class ProgramService {
               db.stageExams(id(s, "id"), user)));
       unlocked = unlocked && passed;
     }
-    return row("path", p, "stages", stages);
+    return row("path", withDepartmentScope(p), "stages", stages);
   }
 
   @Transactional

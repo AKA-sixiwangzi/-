@@ -7,16 +7,34 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import LoadState from '../components/LoadState.vue'
 import Empty from '../components/Empty.vue'
+import {
+  departmentScopeLabel,
+  isAllDepartments,
+  userMatchesDepartmentScope,
+} from '../lib/department-scope.js'
 const route = useRoute(),
   manage = computed(() => route.path.startsWith('/manage')),
   rows = ref([]),
   detail = ref(null),
   courses = ref([]),
   users = ref([]),
-  org = ref({ positions: [], grades: [] }),
+  org = ref({ departments: [], positions: [], grades: [] }),
   dialog = ref(''),
   form = ref({}),
   selected = ref(null)
+const selectedDepartments = computed(() =>
+  org.value.departments.filter((department) => form.value.departmentIds?.includes(department.id)),
+)
+const eligibleUsers = computed(() =>
+  users.value.filter((user) => user.active && userMatchesDepartmentScope(user, selected.value)),
+)
+const invalidDepartmentSelection = computed(
+  () => dialog.value === 'path' && !form.value.allDepartments && !form.value.departmentIds?.length,
+)
+function setDepartmentMode(all) {
+  form.value.allDepartments = all
+  if (all) form.value.departmentIds = []
+}
 const { loading, error, reload } = useLoad(async () => {
   rows.value = await api('/paths')
   if (rows.value.length) detail.value = await api('/paths/' + rows.value[0].id)
@@ -34,7 +52,7 @@ function open(type, p) {
   selected.value = p
   form.value =
     type === 'path'
-      ? { title: '', positionId: null, gradeId: null }
+      ? { title: '', positionId: null, gradeId: null, allDepartments: true, departmentIds: [] }
       : type === 'stage'
         ? { title: '', sortOrder: (detail.value?.stages.length || 0) + 1, courseIds: [] }
         : { userIds: [] }
@@ -42,13 +60,19 @@ function open(type, p) {
 }
 async function submit() {
   await perform(async () => {
-    if (dialog.value === 'path') await api('/paths', 'POST', form.value)
+    let pathId = selected.value?.id
+    if (dialog.value === 'path') {
+      if (invalidDepartmentSelection.value) throw new Error('请至少选择一个适用部门')
+      const created = await api('/paths', 'POST', form.value)
+      pathId = created.id
+    }
     if (dialog.value === 'stage')
       await api('/paths/' + selected.value.id + '/stages', 'POST', form.value)
     if (dialog.value === 'assign')
       await api('/paths/' + selected.value.id + '/assign', 'POST', form.value)
     dialog.value = ''
     await reload()
+    if (pathId) await choose(pathId)
   }, '操作已保存')
 }
 </script>
@@ -79,6 +103,11 @@ async function submit() {
         <div>
           <span class="tag">岗位成长计划</span>
           <h2>{{ detail.path.title }}</h2>
+          <p class="scope-summary">
+            <Icon name="building" :size="14" />适用部门：{{
+              departmentScopeLabel(detail.path, org.departments)
+            }}
+          </p>
           <p class="caption">
             完成阶段课程并通过关联考试，即可解锁下一阶段。已有有效学习结果可复用。
           </p>
@@ -178,8 +207,49 @@ async function submit() {
       <div class="form-grid">
         <template v-if="dialog === 'path'"
           ><label class="field span-2"
-            ><span>路线名称</span><input v-model="form.title" required maxlength="200" /></label
-          ><label class="field"
+            ><span>路线名称</span><input v-model="form.title" required maxlength="200"
+          /></label>
+          <fieldset class="department-scope span-2">
+            <legend>适用部门</legend>
+            <div class="department-modes">
+              <label :class="{ active: form.allDepartments }">
+                <input
+                  type="radio"
+                  name="route-department-mode"
+                  :checked="form.allDepartments"
+                  @change="setDepartmentMode(true)"
+                />所有部门
+              </label>
+              <label :class="{ active: !form.allDepartments }">
+                <input
+                  type="radio"
+                  name="route-department-mode"
+                  :checked="!form.allDepartments"
+                  @change="setDepartmentMode(false)"
+                />指定部门（可多选）
+              </label>
+            </div>
+            <template v-if="!form.allDepartments">
+              <div v-if="org.departments.length" class="department-options">
+                <label v-for="department in org.departments" :key="department.id">
+                  <input type="checkbox" v-model="form.departmentIds" :value="department.id" />
+                  {{ department.name }}
+                </label>
+              </div>
+              <p v-else class="scope-empty">暂无可选部门，请先在“组织与人员”中新增部门。</p>
+              <div v-if="selectedDepartments.length" class="department-selected" aria-live="polite">
+                <small>已选 {{ selectedDepartments.length }} 个部门</small>
+                <span v-for="department in selectedDepartments" :key="department.id" class="tag">{{
+                  department.name
+                }}</span>
+              </div>
+              <p v-else class="scope-validation" role="status">请至少选择一个适用部门。</p>
+            </template>
+            <p class="scope-hint">
+              所有部门不限制部门范围；指定部门后，分配员工时仅显示这些部门的员工。
+            </p>
+          </fieldset>
+          <label class="field"
             ><span>适用岗位</span
             ><select v-model="form.positionId">
               <option :value="null">不限定</option>
@@ -214,23 +284,142 @@ async function submit() {
         >
         <div v-if="dialog === 'assign'" class="field span-2">
           <span>选择员工</span>
+          <p class="notice">
+            适用部门：{{ departmentScopeLabel(selected, org.departments) }}。请手动勾选参加人员。
+          </p>
           <div class="check-list">
-            <label v-for="u in users.filter((x) => x.active)" :key="u.id"
+            <label v-for="u in eligibleUsers" :key="u.id"
               ><input type="checkbox" v-model="form.userIds" :value="u.id" />{{
                 u.display_name
               }}</label
             >
           </div>
+          <p v-if="!eligibleUsers.length" class="scope-empty">
+            {{
+              isAllDepartments(selected)
+                ? '暂无可分配的启用员工，请先添加员工。'
+                : '所选部门暂无可分配的启用员工，请先维护员工所属部门。'
+            }}
+          </p>
         </div>
       </div>
       <footer class="form-actions">
         <button type="button" class="btn white" @click="dialog = ''">取消</button
-        ><button class="btn" :disabled="ui.busy > 0">保存</button>
+        ><button
+          class="btn"
+          :disabled="
+            ui.busy > 0 ||
+            invalidDepartmentSelection ||
+            (dialog === 'assign' && !form.userIds?.length)
+          "
+        >
+          保存
+        </button>
       </footer>
     </form></Modal
   >
 </template>
 <style scoped>
+.scope-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  color: #6c86a7;
+  line-height: 1.8;
+  margin: 9px 0;
+}
+.scope-summary svg {
+  margin-top: 3px;
+}
+.department-scope {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.department-scope legend {
+  font-size: 12px;
+  font-weight: 500;
+  color: #61748e;
+  padding: 0;
+  margin-bottom: 9px;
+}
+.department-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.department-modes label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dce5f1;
+  border-radius: 6px;
+  padding: 10px 13px;
+  font-size: 11px;
+  color: #8093ad;
+  cursor: pointer;
+}
+.department-modes label.active {
+  border-color: #86a8d4;
+  background: #f0f5fd;
+  color: #003f98;
+}
+.department-modes input,
+.department-options input {
+  margin: 0;
+}
+.department-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px;
+  border: 1px solid #e2eaf5;
+  background: #fafcff;
+  border-radius: 7px;
+  padding: 14px;
+  margin-top: 12px;
+  max-height: 180px;
+  overflow: auto;
+}
+.department-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: #5d7799;
+  line-height: 1.7;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.department-options input {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+.department-selected {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+.department-selected small {
+  color: #8c9eb6;
+  font-size: 10px;
+}
+.scope-hint,
+.scope-empty {
+  font-size: 10px;
+  line-height: 1.9;
+  color: #94a5bb;
+  margin-top: 9px;
+}
+.scope-validation {
+  font-size: 10px;
+  color: #b18b39;
+  line-height: 1.9;
+  margin-top: 9px;
+}
 .path-banner {
   display: flex;
   justify-content: space-between;
@@ -345,6 +534,9 @@ async function submit() {
   }
 }
 @media (max-width: 600px) {
+  .department-options {
+    grid-template-columns: 1fr;
+  }
   .path-stages {
     margin-left: 0;
   }

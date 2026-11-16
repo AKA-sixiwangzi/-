@@ -19,12 +19,13 @@ public class ProgramController {
 
   @GetMapping("/paths")
   public Object paths() {
-    return db.paths(Current.actor().admin(), Current.actor().id());
+    return service.paths();
   }
 
   @PostMapping("/paths")
   public Object create(@Valid @RequestBody Requests.Path r) {
-    return service.path(r.title(), r.positionId(), r.gradeId());
+    return service.path(
+        r.title(), r.positionId(), r.gradeId(), r.allDepartments(), r.departmentIds());
   }
 
   @GetMapping("/paths/{id}")

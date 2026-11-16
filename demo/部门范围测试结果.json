@@ -1,0 +1,33 @@
+{
+  "date": "2026-11-16",
+  "feature": "成长路线适用部门",
+  "frontend": {
+    "command": "npm test",
+    "tests": 19,
+    "passed": 19,
+    "failed": 0,
+    "build": "passed"
+  },
+  "backend": {
+    "command": "mvn clean verify",
+    "tests": 64,
+    "passed": 63,
+    "skipped": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipReason": "SQL Server connection not configured"
+  },
+  "browser": {
+    "desktop": true,
+    "mobileNoOverflow": true,
+    "emptySelectionBlocked": true,
+    "multiDepartmentSaveAndReload": true,
+    "singleDepartmentEmployeeFilter": true,
+    "noAutomaticAssignment": true,
+    "allDepartmentDefault": true,
+    "builtArtifactNetworkOffline": true,
+    "pageErrors": []
+  },
+  "sqlServerMigrationExecuted": false,
+  "realDatabaseEndToEndTested": false
+}

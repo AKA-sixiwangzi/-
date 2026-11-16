@@ -265,6 +265,8 @@ export function seed() {
         title: '从新人成长为岗位骨干',
         position_id: 1,
         grade_id: 1,
+        all_departments: true,
+        department_ids: [],
         published: true,
         users: [7, 9, 10],
         stages: [

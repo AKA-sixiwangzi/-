@@ -19,6 +19,8 @@
 
 ## 环境
 
+2026-11-16升级：成长路线新增“适用部门”。已有数据库请先由DBA执行 `database/02-add-path-departments.sql`，再部署新版WAR；无需重建数据库，旧路线默认所有部门，历史任务和学习结果保留。全新数据库使用最新 `01-schema.sql` 即可，不必另跑升级脚本。部门范围与手工参训名单分别管理，指定部门的路线不能分配给范围外员工。
+
 - 完整 JDK 17 或 21（只有 JRE 无法正常编译），Maven 3.9+
 - SQL Server 2019+，建议 SQL Server 2022；开启 TCP/IP，准备应用数据库用户
 - Tomcat 10.1（Jakarta Servlet 6；不能部署到 Tomcat 9）

@@ -72,6 +72,22 @@ workspaces控制页面入口；数据接口仍独立校验。普通员工可进�
 
 路线按ID关联已存在岗位/职级，不会自动遍历所有匹配人员；分配名单显式指定。
 
+2026-11-16：新建路线增加适用部门范围，支持所有部门或多个指定部门：
+
+```json
+{"title":"跨部门通用培训","positionId":null,"gradeId":null,"allDepartments":true,"departmentIds":[]}
+```
+
+```json
+{"title":"部门专项学习路线","positionId":null,"gradeId":null,"allDepartments":false,"departmentIds":[1,2]}
+```
+
+部门选项来自 `GET /organization` 的 `departments`。选择指定部门时至少提供一个有效部门ID，重复ID去重；`allDepartments=true` 与非空ID列表不能同时提交。旧请求同时省略这两个字段时默认所有部门；仅提供非空ID列表时推断为指定部门。
+
+`GET /paths` 每项与 `GET /paths/{id}` 的 `path` 返回 `all_departments`、`department_ids`、`departments`（`[{"id":1,"name":"总经办"}]`）。所有部门用 `all_departments=true`、两个空数组表示；它也适用于未来新增部门。该范围不自动生成参训名单：仍需发布后调用分配接口。分配指定部门路线时，后端先校验整批人员都属于该范围，再写入任务；越界员工请求返回400，整批不分配。已有分配和学习记录不会因升级而重写。
+
+已初始化旧数据库时，升级新版后端前请由数据库管理员在应用库执行 `database/02-add-path-departments.sql`；不要重复执行全量建表脚本。新建库直接使用最新 `01-schema.sql`。
+
 创建计划`POST /plans`，之后调用`POST /plans/{id}/publish`：
 
 ```json

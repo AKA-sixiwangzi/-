@@ -5,10 +5,18 @@ import org.apache.ibatis.annotations.*;
 
 public interface ProgramMapper {
   @Insert(
-      "INSERT INTO learning_path(title,position_id,grade_id)"
-          + " VALUES(#{title},#{position_id},#{grade_id})")
+      "INSERT INTO learning_path(title,position_id,grade_id,all_departments)"
+          + " VALUES(#{title},#{position_id},#{grade_id},#{all_departments})")
   @Options(useGeneratedKeys = true, keyProperty = "id")
   void createPath(Map<String, Object> r);
+
+  @Insert("INSERT INTO path_department(path_id,department_id) VALUES(#{path},#{department})")
+  void pathDepartment(@Param("path") long path, @Param("department") long department);
+
+  @Select(
+      "SELECT d.id,d.name FROM path_department pd JOIN department d ON d.id=pd.department_id"
+          + " WHERE pd.path_id=#{path} ORDER BY d.id")
+  List<Map<String, Object>> pathDepartments(long path);
 
   @Select("SELECT * FROM learning_path WHERE id=#{id}")
   Map<String, Object> path(long id);

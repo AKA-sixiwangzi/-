@@ -1,5 +1,10 @@
 import { seed } from './seed.js'
 import { coverage, credit, sameChoices } from './rules.js'
+import {
+  normalizeDepartmentScope,
+  departmentScopeView,
+  userMatchesDepartmentScope,
+} from './department-scope.js'
 export const DEMO_KEY = 'xuri-demo-v1'
 export function createDemo(storage, now = () => Date.now()) {
   const read = () => {
@@ -401,10 +406,22 @@ export function createDemo(storage, now = () => Date.now()) {
         })),
       }
     } else if (path === '/paths' && method === 'GET')
-      result = s.paths.filter((p) => isAdmin || p.users.includes(me.id))
+      result = s.paths
+        .filter((p) => isAdmin || p.users.includes(me.id))
+        .map((p) => departmentScopeView(p, s.departments))
     else if (path === '/paths' && method === 'POST') {
       admin()
-      result = { ...body, id: next(s.paths), stages: [], users: [], published: false }
+      const scope = normalizeDepartmentScope(body.allDepartments, body.departmentIds, s.departments)
+      result = {
+        id: next(s.paths),
+        title: body.title,
+        position_id: body.positionId ?? null,
+        grade_id: body.gradeId ?? null,
+        ...scope,
+        stages: [],
+        users: [],
+        published: false,
+      }
       s.paths.push(result)
     } else if (/^\/paths\/\d+\/stages$/.test(path)) {
       admin()
@@ -424,14 +441,22 @@ export function createDemo(storage, now = () => Date.now()) {
       admin()
       const p = s.paths.find((p) => p.id === id)
       if (!p?.published) fail('路线未发布')
-      p.users = [...new Set([...p.users, ...body.userIds])]
-      body.userIds.forEach((u) => p.stages.forEach((t) => t.courseIds.forEach((c) => grant(u, c))))
+      if (!Array.isArray(body.userIds) || !body.userIds.length) fail('请至少选择一名员工', 400)
+      const ids = [...new Set(body.userIds)]
+      const members = ids.map(
+        (userId) => s.users.find((user) => user.id === userId) || fail('员工不存在', 404),
+      )
+      if (members.some((user) => !userMatchesDepartmentScope(user, p))) {
+        fail('所选员工不在路线适用部门范围内', 400)
+      }
+      p.users = [...new Set([...p.users, ...ids])]
+      ids.forEach((u) => p.stages.forEach((t) => t.courseIds.forEach((c) => grant(u, c))))
     } else if (/^\/paths\/\d+$/.test(path)) {
       const p = s.paths.find((p) => p.id === id) || fail('路线不存在', 404)
       if (!isAdmin && !p.users.includes(me.id)) fail('无权访问', 403)
       let unlocked = true
       result = {
-        path: p,
+        path: departmentScopeView(p, s.departments),
         stages: p.stages.map((t) => {
           const stage = {
             stage: t,
