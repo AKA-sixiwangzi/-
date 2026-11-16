@@ -44,6 +44,11 @@ public class ProgramService {
   public Map<String, Object> path(
       String title, Long position, Long grade, Boolean allDepartments, List<Long> departmentIds) {
     Current.actor().requireAdmin();
+    Problem.require(
+        position == null || users.positions().stream()
+            .anyMatch(p -> IdentityMapper.fixedPosition(p) && id(p, "id") == position),
+        400,
+        "岗位仅支持专业岗、管理岗、综合岗，请刷新岗位选项");
     List<Long> requested = departmentIds == null ? List.of() : departmentIds;
     Problem.require(
         requested.size() <= 1000
@@ -132,15 +137,16 @@ public class ProgramService {
   @Transactional
   public void assign(long path, List<Long> ids, Long departmentId, Long positionId) {
     Current.actor().requireAdmin();
-    Problem.require(departmentId != null && positionId != null, 400, "请先选择部门和具体岗位");
+    Problem.require(departmentId != null && positionId != null, 400, "请先选择部门和岗位");
     Problem.require(
         users.departments().stream().anyMatch(d -> id(d, "id") == departmentId),
         400,
         "所选部门不存在，请刷新后重试");
     Problem.require(
-        users.positions().stream().anyMatch(p -> id(p, "id") == positionId),
+        users.positions().stream()
+            .anyMatch(p -> IdentityMapper.fixedPosition(p) && id(p, "id") == positionId),
         400,
-        "所选岗位不存在，请刷新后重试");
+        "岗位仅支持专业岗、管理岗、综合岗，请刷新岗位选项");
     assignMembers(path, ids, departmentId, positionId);
   }
 

@@ -34,9 +34,8 @@ public final class Requests {
   public record Name(
       @NotBlank @Size(max = 100) String name, Long parentId, @Min(0) int sortOrder) {}
 
-  public record Position(
-      @NotBlank @Size(max = 100) String name,
-      @Pattern(regexp = "PROFESSIONAL|MANAGEMENT|GENERAL") String positionType) {}
+  // Retained solely to return a clear conflict to older clients of the disabled write endpoints.
+  public record Position(String name, String positionType) {}
 
   public record Scope(@Positive long departmentId) {}
 

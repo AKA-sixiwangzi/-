@@ -26,7 +26,9 @@ class PathAssignmentScopeTest {
   void setup() {
     Current.set(new Actor(1, Set.of("ADMIN")));
     when(users.departments()).thenReturn(List.of(row("id", 1L), row("id", 2L)));
-    when(users.positions()).thenReturn(List.of(row("id", 2L), row("id", 3L)));
+    when(users.positions()).thenReturn(List.of(
+        row("id", 2L, "name", "专业岗", "position_type", "PROFESSIONAL"),
+        row("id", 3L, "name", "综合岗", "position_type", "GENERAL")));
     when(db.lockPath(10)).thenReturn(
         row("id", 10L, "title", "专业路线", "published", true,
             "position_id", 2L, "all_departments", true));
@@ -50,7 +52,7 @@ class PathAssignmentScopeTest {
   }
 
   @Test
-  void matchingDepartmentAndSpecificPositionAssignsDeduplicatedMembers() {
+  void matchingDepartmentAndFixedPositionAssignsDeduplicatedMembers() {
     service.assign(10, List.of(7L, 7L), 1L, 2L);
     verify(db, times(1)).assign(10, 7);
     verify(messages, times(1)).notify(7, "新的岗位成长路线", "专业路线");
@@ -75,6 +77,24 @@ class PathAssignmentScopeTest {
   }
 
   @Test
+  void legacyCustomPositionCannotBeUsedToCreateANewRoute() {
+    when(users.positions()).thenReturn(List.of(
+        row("id", 2L, "name", "工程师", "position_type", "PROFESSIONAL")));
+    assertEquals(400, assertThrows(Problem.class,
+        () -> service.path("旧岗位路线", 2L, null)).status);
+    verify(db, never()).createPath(anyMap());
+  }
+
+  @Test
+  void legacyCustomPositionCannotBeUsedAsAnAssignmentFilter() {
+    when(users.positions()).thenReturn(List.of(
+        row("id", 2L, "name", "工程师", "position_type", "PROFESSIONAL")));
+    assertEquals(400, assertThrows(Problem.class,
+        () -> service.assign(10, List.of(7L), 1L, 2L)).status);
+    noAssignments();
+  }
+
+  @Test
   void selectedPositionMustFitRoutePosition() {
     assertEquals(400, assertThrows(Problem.class,
         () -> service.assign(10, List.of(7L), 1L, 3L)).status);
@@ -90,7 +110,7 @@ class PathAssignmentScopeTest {
   }
 
   @Test
-  void anotherSpecificPositionInSameBatchPreventsEveryWrite() {
+  void anotherPositionInSameBatchPreventsEveryWrite() {
     when(users.lockUser(8)).thenReturn(employee(8, 1, 3, true));
     assertEquals(400, assertThrows(Problem.class,
         () -> service.assign(10, List.of(7L, 8L), 1L, 2L)).status);
@@ -116,7 +136,7 @@ class PathAssignmentScopeTest {
   }
 
   @Test
-  void legacyServiceCallAlsoEnforcesRouteSpecificPosition() {
+  void legacyServiceCallAlsoEnforcesRoutePosition() {
     when(users.lockUser(7)).thenReturn(employee(7, 1, 3, true));
     assertEquals(400, assertThrows(Problem.class,
         () -> service.assign(10, List.of(7L))).status);

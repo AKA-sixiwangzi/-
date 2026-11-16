@@ -347,14 +347,15 @@ export function seed() {
     audit: [],
     learningRequests: [],
     learningRequestVersion: 1,
+    fixedPositionVersion: 1,
     departments: [
       { id: 1, name: '总经办' },
       { id: 2, name: '运营管理部' },
     ],
     positions: [
-      { id: 1, name: '综合管理岗', position_type: 'GENERAL' },
-      { id: 2, name: '培训讲师', position_type: 'PROFESSIONAL' },
-      { id: 3, name: '部门经理', position_type: 'MANAGEMENT' },
+      { id: 1, name: '综合岗', position_type: 'GENERAL' },
+      { id: 2, name: '专业岗', position_type: 'PROFESSIONAL' },
+      { id: 3, name: '管理岗', position_type: 'MANAGEMENT' },
     ],
     grades: [
       { id: 1, name: '初级' },

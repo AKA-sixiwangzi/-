@@ -14,7 +14,6 @@ import com.xuri.training.web.IdentityController;
 import com.xuri.training.web.Requests;
 import java.util.*;
 import org.junit.jupiter.api.*;
-import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -22,15 +21,15 @@ class PositionTypesTest {
   IdentityMapper db = mock(IdentityMapper.class);
   IdentityService service = mock(IdentityService.class);
   IdentityController controller = new IdentityController(service, db);
+  List<Map<String, Object>> fixed = List.of(
+      row("id", 17L, "name", "专业岗", "position_type", "PROFESSIONAL"),
+      row("id", 23L, "name", "管理岗", "position_type", "MANAGEMENT"),
+      row("id", 42L, "name", "综合岗", "position_type", "GENERAL"));
 
   @BeforeEach
-  @SuppressWarnings("unchecked")
   void setup() {
     Current.set(new Actor(1, Set.of("EMPLOYEE", "ADMIN")));
-    doAnswer(invocation -> {
-      ((Map<String, Object>) invocation.getArgument(0)).put("id", 9L);
-      return null;
-    }).when(db).position(anyMap());
+    when(db.positions()).thenReturn(fixed);
   }
 
   @AfterEach
@@ -39,66 +38,119 @@ class PositionTypesTest {
   }
 
   @Test
-  void concreteJobNameIsPreservedWithinEachFixedType() {
-    for (String type : List.of("PROFESSIONAL", "MANAGEMENT", "GENERAL")) {
-      @SuppressWarnings("unchecked")
-      Map<String, Object> result =
-          (Map<String, Object>) controller.position(new Requests.Position("工程师", type));
-      assertEquals("工程师", result.get("name"));
-      assertEquals(type, result.get("position_type"));
-    }
-  }
-
-  @Test
-  void legacyPositionCreationDefaultsToGeneralWithoutRenamingJob() {
+  void organizationReturnsOnlyTheThreeFixedPositionsWithActualDatabaseIds() {
+    List<Map<String, Object>> legacy = new ArrayList<>(fixed);
+    legacy.add(row("id", 99L, "name", "工程师", "position_type", "PROFESSIONAL"));
+    legacy.add(row("id", 100L, "name", "专业岗", "position_type", "GENERAL"));
+    when(db.positions()).thenReturn(legacy);
     @SuppressWarnings("unchecked")
-    Map<String, Object> result =
-        (Map<String, Object>) controller.position(new Requests.Position("旧文员岗", null));
-    assertEquals("旧文员岗", result.get("name"));
-    assertEquals("GENERAL", result.get("position_type"));
+    Map<String, Object> result = (Map<String, Object>) controller.organization();
+    assertEquals(fixed, result.get("positions"));
   }
 
   @Test
-  void unsupportedPositionTypeFailsBeforeWrite() {
-    assertEquals(400, assertThrows(Problem.class,
-        () -> controller.position(new Requests.Position("工程师", "INSTRUCTOR"))).status);
-    verify(db, never()).position(anyMap());
+  void canonicalPositionCheckRejectsOtherNamesAndMismatchedCodes() {
+    assertTrue(fixed.stream().allMatch(IdentityMapper::fixedPosition));
+    assertFalse(IdentityMapper.fixedPosition(row("name", "工程师", "position_type", "PROFESSIONAL")));
+    assertFalse(IdentityMapper.fixedPosition(row("name", "管理岗", "position_type", "PROFESSIONAL")));
+    assertFalse(IdentityMapper.fixedPosition(row("name", "专业岗", "position_type", "INSTRUCTOR")));
+    assertFalse(IdentityMapper.fixedPosition(row("id", 123L)));
   }
 
   @Test
-  void existingPositionCanBeReclassifiedWithoutChangingIdentity() {
-    when(db.positionUpdate(anyMap())).thenReturn(1);
-    @SuppressWarnings("unchecked")
-    Map<String, Object> result =
-        (Map<String, Object>) controller.positionUpdate(4, new Requests.Position("工程师", "PROFESSIONAL"));
-    assertEquals(4L, result.get("id"));
-    assertEquals("PROFESSIONAL", result.get("position_type"));
-    verify(db).audit(1L, "POSITION_UPDATE", "4", "工程师");
+  void administratorCannotCreateAnyAdditionalPosition() {
+    Problem error = assertThrows(Problem.class,
+        () -> controller.position(new Requests.Position("工程师", "PROFESSIONAL")));
+    assertEquals(409, error.status);
+    assertEquals("岗位固定为专业岗、管理岗、综合岗，不支持新增或修改", error.getMessage());
+    verifyNoInteractions(db);
   }
 
   @Test
-  void nonexistentPositionCannotBeUpdated() {
-    assertEquals(404, assertThrows(Problem.class,
-        () -> controller.positionUpdate(404, new Requests.Position("工程师", "PROFESSIONAL"))).status);
-    verify(db, never()).audit(any(), anyString(), anyString(), anyString());
+  void administratorCannotRenameOrReclassifyAnExistingPosition() {
+    assertEquals(409, assertThrows(Problem.class,
+        () -> controller.positionUpdate(17, new Requests.Position("工程师", "PROFESSIONAL"))).status);
+    assertEquals(409, assertThrows(Problem.class,
+        () -> controller.positionUpdate(17, new Requests.Position("专业岗", "GENERAL"))).status);
+    verifyNoInteractions(db);
   }
 
   @Test
-  void employeesCannotCreateOrReclassifyPositions() {
+  void employeesCannotUseDisabledPositionWriteEndpoints() {
     Current.set(new Actor(7, Set.of("EMPLOYEE")));
     assertEquals(403, assertThrows(Problem.class,
         () -> controller.position(new Requests.Position("工程师", "PROFESSIONAL"))).status);
     assertEquals(403, assertThrows(Problem.class,
-        () -> controller.positionUpdate(4, new Requests.Position("工程师", "PROFESSIONAL"))).status);
-    verify(db, never()).position(anyMap());
-    verify(db, never()).positionUpdate(anyMap());
+        () -> controller.positionUpdate(17, null)).status);
+    verifyNoInteractions(db);
   }
 
   @Test
-  void employeeCannotBeCreatedWithUnknownConcretePosition() {
+  void oldHttpClientsReceiveClearConflictForEveryPositionWrite() throws Exception {
+    var mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new Errors()).build();
+    mvc.perform(post("/api/admin/positions").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"工程师\",\"positionType\":\"OTHER\"}"))
+        .andExpect(status().isConflict());
+    mvc.perform(put("/api/admin/positions/17").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"管理岗\"}"))
+        .andExpect(status().isConflict());
+    mvc.perform(post("/api/admin/positions")).andExpect(status().isConflict());
+    verifyNoInteractions(db);
+  }
+
+  @Test
+  void rolePermissionIsCheckedBeforeDisabledEndpointPayloadFields() throws Exception {
+    Current.set(new Actor(7, Set.of("EMPLOYEE")));
+    var mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new Errors()).build();
+    mvc.perform(post("/api/admin/positions").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"\",\"positionType\":\"OTHER\"}"))
+        .andExpect(status().isForbidden());
+    mvc.perform(put("/api/admin/positions/17")).andExpect(status().isForbidden());
+    verifyNoInteractions(db);
+  }
+
+  @Test
+  void userCannotBeCreatedWithUnknownPositionId() {
     assertEquals(400, assertThrows(Problem.class,
         () -> controller.create(new Requests.User("staff", "longPassword1!", "员工", null, 999L, null))).status);
     verifyNoInteractions(service);
+  }
+
+  @Test
+  void customLegacyPositionIsRejectedEvenIfItHasAValidTypeCode() {
+    when(db.positions()).thenReturn(List.of(
+        row("id", 99L, "name", "工程师", "position_type", "PROFESSIONAL")));
+    assertEquals(400, assertThrows(Problem.class,
+        () -> controller.create(new Requests.User("staff", "longPassword1!", "员工", null, 99L, null))).status);
+    verifyNoInteractions(service);
+  }
+
+  @Test
+  void fixedPositionSelectionPassesThroughItsRealId() {
+    controller.create(new Requests.User("staff", "longPassword1!", "员工", null, 17L, null));
+    verify(service).create("staff", "longPassword1!", "员工", null, 17L, null);
+  }
+
+  @Test
+  void selectingManagementPositionDoesNotGrantDepartmentLeaderRole() {
+    when(db.profileUpdate(anyMap())).thenReturn(1);
+    controller.profile(7, new Requests.UserProfile("员工", null, 23L, null));
+    verify(db).profileUpdate(row("id", 7L, "display_name", "员工", "department_id", null,
+        "position_id", 23L, "grade_id", null));
+    verify(db, never()).grant(anyLong(), anyString());
+    verify(db, never()).ungrant(anyLong(), anyString());
+    verifyNoInteractions(service);
+  }
+
+  @Test
+  void rolesRemainSeparateFromTheThreePositions() {
+    @SuppressWarnings("unchecked")
+    Map<String, Object> result = (Map<String, Object>) controller.organization();
+    assertEquals(List.of(
+        row("code", "EMPLOYEE", "name", "普通员工"),
+        row("code", "INSTRUCTOR", "name", "内训师"),
+        row("code", "MANAGER", "name", "部门负责人"),
+        row("code", "ADMIN", "name", "组织发展部")), result.get("roles"));
   }
 
   @Test
@@ -110,21 +162,5 @@ class PositionTypesTest {
     List<Map<String, Object>> result = (List<Map<String, Object>>) controller.users(0);
     assertEquals(Set.of("EMPLOYEE", "MANAGER"), result.get(0).get("roles"));
     assertEquals(List.of(2L), result.get(0).get("manager_department_ids"));
-  }
-
-  @Test
-  void httpPositionPayloadChecksTypeAndPreservesExactJobName() throws Exception {
-    var mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new Errors()).build();
-    mvc.perform(post("/api/admin/positions").contentType(MediaType.APPLICATION_JSON)
-            .content("{\"name\":\"工程师\",\"positionType\":\"INSTRUCTOR\"}"))
-        .andExpect(status().isBadRequest());
-    mvc.perform(post("/api/admin/positions").contentType(MediaType.APPLICATION_JSON)
-            .content("{\"name\":\"工程师\",\"positionType\":\"PROFESSIONAL\"}"))
-        .andExpect(status().isOk());
-    @SuppressWarnings("unchecked")
-    ArgumentCaptor<Map<String, Object>> captured = ArgumentCaptor.forClass(Map.class);
-    verify(db).position(captured.capture());
-    assertEquals("工程师", captured.getValue().get("name"));
-    assertEquals("PROFESSIONAL", captured.getValue().get("position_type"));
   }
 }

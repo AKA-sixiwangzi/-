@@ -7,7 +7,7 @@ import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import LoadState from '../components/LoadState.vue'
 import Empty from '../components/Empty.vue'
-import { POSITION_TYPES, positionLabel } from '../lib/organization.js'
+import { positionLabel } from '../lib/organization.js'
 import {
   departmentScopeLabel,
   isAllDepartments,
@@ -287,17 +287,7 @@ async function submit() {
             ><span>适用岗位</span
             ><select v-model="form.positionId">
               <option :value="null">不限定</option>
-              <optgroup v-for="type in POSITION_TYPES" :key="type.value" :label="type.label">
-                <option
-                  v-for="p in org.positions.filter(
-                    (p) => (p.position_type || 'GENERAL') === type.value,
-                  )"
-                  :value="p.id"
-                  :key="p.id"
-                >
-                  {{ p.name }}
-                </option>
-              </optgroup>
+              <option v-for="p in org.positions" :value="p.id" :key="p.id">{{ p.name }}</option>
             </select></label
           ><label class="field"
             ><span>适用职级</span
@@ -328,7 +318,7 @@ async function submit() {
         >
         <template v-if="dialog === 'assign'">
           <p class="notice span-2">
-            先选择部门和具体岗位，再勾选参加人员。适用部门：{{
+            先选择部门和岗位，再勾选参加人员。适用部门：{{
               departmentScopeLabel(selected, org.departments)
             }}。
           </p>
@@ -348,18 +338,8 @@ async function submit() {
           <label class="field"
             ><span>岗位</span
             ><select v-model="form.positionId" required>
-              <option :value="null" disabled>请选择具体岗位</option>
-              <optgroup v-for="type in POSITION_TYPES" :key="type.value" :label="type.label">
-                <option
-                  v-for="position in eligiblePositions.filter(
-                    (p) => (p.position_type || 'GENERAL') === type.value,
-                  )"
-                  :key="position.id"
-                  :value="position.id"
-                >
-                  {{ position.name }}
-                </option>
-              </optgroup>
+              <option :value="null" disabled>请选择岗位</option>
+              <option v-for="position in eligiblePositions" :key="position.id" :value="position.id">{{ position.name }}</option>
             </select></label
           >
           <div class="field span-2">

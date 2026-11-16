@@ -1,30 +1,31 @@
 {
   "date": "2026-11-16",
-  "feature": "岗位三分类、四类角色、部门岗位分配与个人加课",
+  "feature": "固定三岗位修正，保留角色与加课流程",
   "frontend": {
-    "tests": 33,
-    "passed": 33,
-    "failed": 0,
+    "tests": 34,
+    "passed": 34,
+    "failures": 0,
     "build": "passed"
   },
   "backend": {
-    "tests": 108,
+    "tests": 114,
     "failures": 0,
     "errors": 0,
     "skipped": 1,
-    "passed": 107
+    "passed": 113
   },
   "browser": {
-    "employeeGuard": true,
-    "managerDepartmentIsolation": true,
-    "pendingDoesNotGrant": true,
-    "approvalOnlyTargetsChosenEmployee": true,
-    "directAuthorizationVisibleToEmployee": true,
-    "jobTypeAndNameStored": true,
-    "routeDepartmentAndJobRequired": true,
-    "filterChangesClearSelection": true,
+    "employeeSelectExactlyThree": true,
+    "noPositionSubgroupsOrCrud": true,
+    "organizationDictionaryOnlyDepartmentAndGrade": true,
+    "routeSelectExactlyThree": true,
+    "routeDepartmentAndPositionFilter": true,
+    "requestAndApprovalStillWork": true,
     "mobileNoOverflow": true,
-    "reloadAndNetworkOfflineSubmission": true,
+    "legacyPositionsConsolidated": true,
+    "employeeAndRouteReferencesRemapped": true,
+    "learningAndApprovalHistoryPreserved": true,
+    "offlineNavigation": true,
     "pageErrors": []
   },
   "sqlServerMigrationExecuted": false,

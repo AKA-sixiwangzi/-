@@ -81,15 +81,23 @@ public interface IdentityMapper {
   @Options(useGeneratedKeys = true, keyProperty = "id")
   void department(Map<String, Object> r);
 
-  @Select("SELECT * FROM job_position ORDER BY id")
+  @Select(
+      "SELECT * FROM job_position WHERE"
+          + " (position_type='PROFESSIONAL' AND name=N'专业岗')"
+          + " OR (position_type='MANAGEMENT' AND name=N'管理岗')"
+          + " OR (position_type='GENERAL' AND name=N'综合岗')"
+          + " ORDER BY CASE position_type WHEN 'PROFESSIONAL' THEN 1"
+          + " WHEN 'MANAGEMENT' THEN 2 ELSE 3 END")
   List<Map<String, Object>> positions();
 
-  @Insert("INSERT INTO job_position(name,position_type) VALUES(#{name},#{position_type})")
-  @Options(useGeneratedKeys = true, keyProperty = "id")
-  void position(Map<String, Object> r);
-
-  @Update("UPDATE job_position SET name=#{name},position_type=#{position_type} WHERE id=#{id}")
-  int positionUpdate(Map<String, Object> r);
+  static boolean fixedPosition(Map<String, Object> position) {
+    return switch (Objects.toString(position.get("position_type"), "")) {
+      case "PROFESSIONAL" -> "专业岗".equals(position.get("name"));
+      case "MANAGEMENT" -> "管理岗".equals(position.get("name"));
+      case "GENERAL" -> "综合岗".equals(position.get("name"));
+      default -> false;
+    };
+  }
 
   @Select("SELECT department_id FROM manager_department WHERE user_id=#{id} ORDER BY department_id")
   List<Long> managerDepartmentIds(long id);

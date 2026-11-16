@@ -11,10 +11,6 @@ export const ROLE_LABELS = {
   ADMIN: '组织发展部',
 }
 
-export function positionTypeLabel(position) {
-  return POSITION_TYPES.find((type) => type.value === position?.position_type)?.label || '综合岗'
-}
-
 export function positionLabel(position) {
-  return position ? `${positionTypeLabel(position)} · ${position.name}` : '未设置岗位'
+  return position?.name || '未设置岗位'
 }

@@ -229,16 +229,26 @@ test('部门加岗位分配拒绝筛选外员工、路线岗位不符和停用�
   assert.deepEqual(call(`/paths/${route.id}`, 'GET', {}, 1).path.users, [10])
 })
 
-test('岗位分类与员工资料编辑保留身份和学习记录，并拒绝不存在的组织编号', () => {
+test('岗位固定为三项且禁止新增或改名，员工资料变更保留身份和学习记录', () => {
   const { call, db } = fixture()
   const before = db.read().enrollments
-  const updated = call(
-    '/admin/positions/2',
-    'PUT',
-    { name: '培训规划岗', positionType: 'MANAGEMENT' },
-    1,
+  assert.deepEqual(
+    call('/organization', 'GET', {}, 1)
+      .positions.map((position) => position.name)
+      .sort(),
+    ['专业岗', '管理岗', '综合岗'].sort(),
   )
-  assert.deepEqual(updated, { id: 2, name: '培训规划岗', position_type: 'MANAGEMENT' })
+  for (const [path, method] of [
+    ['/admin/positions', 'POST'],
+    ['/admin/positions/2', 'PUT'],
+  ]) {
+    assert.throws(() => call(path, method, { name: '培训规划岗', positionType: 'MANAGEMENT' }, 1), {
+      status: 409,
+    })
+    assert.throws(() => call(path, method, { name: '自建岗位', positionType: 'MANAGEMENT' }, 7), {
+      status: 403,
+    })
+  }
   call(
     '/admin/users/10',
     'PUT',
@@ -251,10 +261,6 @@ test('岗位分类与员工资料编辑保留身份和学习记录，并拒绝�
   assert.throws(() => call('/admin/users/10', 'PUT', { displayName: '李昂', positionId: 999 }, 1), {
     status: 400,
   })
-  assert.throws(
-    () => call('/admin/positions/2', 'PUT', { name: '岗位', positionType: 'UNKNOWN' }, 1),
-    { status: 400 },
-  )
 })
 
 test('授权范围可撤销且审批立即生效，角色撤销后刷新不会被演示升级恢复', () => {
@@ -276,11 +282,15 @@ test('授权范围可撤销且审批立即生效，角色撤销后刷新不会�
   assert.equal(db.read().users.filter((user) => user.username === 'zhao_manager').length, 1)
 })
 
-test('旧演示数据安全升级岗位类型和部门负责人，不覆盖已占用编号或重置学习记录', () => {
+test('旧演示数据安全合并固定岗位和部门负责人，不覆盖已占用编号或重置学习记录', () => {
   const { db, mutate, storage } = fixture()
   mutate((state) => {
     delete state.learningRequests
     delete state.learningRequestVersion
+    delete state.fixedPositionVersion
+    state.positions.find((position) => position.id === 1).name = '综合管理岗'
+    state.positions.find((position) => position.id === 2).name = '培训讲师'
+    state.positions.find((position) => position.id === 3).name = '部门经理'
     state.positions.forEach((position) => delete position.position_type)
     const user = state.users.find((row) => row.id === 11)
     user.username = 'existing_employee'
@@ -291,12 +301,61 @@ test('旧演示数据安全升级岗位类型和部门负责人，不覆盖已�
   const upgraded = createDemo(storage).read()
   assert.equal(upgraded.users.find((user) => user.id === 11).display_name, '原有员工')
   assert.notEqual(upgraded.users.find((user) => user.username === 'zhao_manager').id, 11)
-  assert.equal(upgraded.positions.find((position) => position.id === 2).name, '培训讲师')
-  assert.equal(upgraded.positions.find((position) => position.id === 2).position_type, 'GENERAL')
+  assert.equal(upgraded.positions.length, 3)
+  assert.equal(upgraded.users.find((user) => user.id === 8).position_id, 1)
   assert.deepEqual(
     new Set(upgraded.positions.map((position) => position.position_type)),
     new Set(['PROFESSIONAL', 'MANAGEMENT', 'GENERAL']),
   )
   assert.deepEqual(upgraded.enrollments, previousEnrollments)
   assert.deepEqual(upgraded.learningRequests, [])
+})
+
+test('岗位合并优先按标准名称归类和保留编号，重新映射员工和路线并保留学习与审批记录', () => {
+  const { submit, mutate, db, call } = fixture()
+  submit()
+  mutate((state) => {
+    delete state.fixedPositionVersion
+    state.positions = [
+      { id: 9, name: '高级工程师', position_type: 'PROFESSIONAL' },
+      { id: 20, name: '专业岗' },
+      { id: 3, name: '车间主任', position_type: 'MANAGEMENT' },
+      { id: 2, name: '班组长', position_type: 'MANAGEMENT' },
+      { id: 1, name: '综合文员', position_type: 'GENERAL' },
+      { id: 12, name: '异常类型', position_type: 'UNKNOWN' },
+      { id: 13, name: '未分类岗位' },
+    ]
+    state.users.find((user) => user.id === 7).position_id = 9
+    state.users.find((user) => user.id === 8).position_id = 3
+    state.users.find((user) => user.id === 9).position_id = 12
+    state.users.find((user) => user.id === 10).position_id = 13
+    state.paths[0].position_id = 9
+  })
+  const before = db.read()
+  const organization = call('/organization', 'GET', {}, 1)
+  assert.deepEqual(organization.positions, [
+    { id: 1, name: '综合岗', position_type: 'GENERAL' },
+    { id: 2, name: '管理岗', position_type: 'MANAGEMENT' },
+    { id: 20, name: '专业岗', position_type: 'PROFESSIONAL' },
+  ])
+  const after = db.read()
+  assert.equal(after.users.find((user) => user.id === 7).position_id, 20)
+  assert.equal(after.users.find((user) => user.id === 8).position_id, 2)
+  assert.equal(after.users.find((user) => user.id === 9).position_id, 1)
+  assert.equal(after.users.find((user) => user.id === 10).position_id, 1)
+  assert.equal(after.paths[0].position_id, 20)
+  for (const key of ['enrollments', 'segments', 'notifications', 'learningRequests']) {
+    assert.deepEqual(after[key], before[key])
+  }
+  assert.deepEqual(
+    after.users.map((user) => user.roles),
+    before.users.map((user) => user.roles),
+  )
+  assert(
+    after.positionMigrationArchive.some(
+      (row) => row.old_name === '高级工程师' && row.new_id === 20,
+    ),
+  )
+  call('/organization', 'GET', {}, 1)
+  assert.deepEqual(db.read().positionMigrationArchive, after.positionMigrationArchive)
 })

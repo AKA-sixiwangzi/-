@@ -15,9 +15,9 @@ export function createDemo(storage, now = () => Date.now()) {
       state.positions.forEach((position) => (position.position_type ||= 'GENERAL'))
       if (!state.learningRequestVersion) {
         for (const [type, name] of [
-          ['PROFESSIONAL', '专业工程师'],
-          ['MANAGEMENT', '部门经理'],
-          ['GENERAL', '综合管理岗'],
+          ['PROFESSIONAL', '专业岗'],
+          ['MANAGEMENT', '管理岗'],
+          ['GENERAL', '综合岗'],
         ]) {
           if (!state.positions.some((position) => position.position_type === type)) {
             state.positions.push({
@@ -38,6 +38,42 @@ export function createDemo(storage, now = () => Date.now()) {
           state.users.push(manager)
         }
         state.learningRequestVersion = 1
+      }
+      if (!state.fixedPositionVersion) {
+        const oldPositions = state.positions.map((position) => ({ ...position }))
+        const canonical = []
+        const mapping = new Map()
+        let nextId = Math.max(0, ...oldPositions.map((position) => position.id)) + 1
+        const typeOf = (position) =>
+          POSITION_TYPES.find((type) => type.label === position.name)?.value ||
+          (POSITION_TYPES.some((type) => type.value === position.position_type)
+            ? position.position_type
+            : 'GENERAL')
+        for (const type of POSITION_TYPES) {
+          const group = oldPositions
+            .filter((position) => typeOf(position) === type.value)
+            .sort((a, b) => a.id - b.id)
+          const preferred = group.find((position) => position.name === type.label) || group[0]
+          const position = {
+            id: preferred?.id ?? nextId++,
+            name: type.label,
+            position_type: type.value,
+          }
+          canonical.push(position)
+          group.forEach((old) => mapping.set(old.id, position))
+        }
+        for (const row of [...state.users, ...state.paths]) {
+          if (mapping.has(row.position_id)) row.position_id = mapping.get(row.position_id).id
+        }
+        state.positionMigrationArchive = oldPositions.map((position) => ({
+          old_id: position.id,
+          old_name: position.name,
+          old_position_type: position.position_type,
+          new_id: mapping.get(position.id).id,
+          new_name: mapping.get(position.id).name,
+        }))
+        state.positions = canonical.sort((a, b) => a.id - b.id)
+        state.fixedPositionVersion = 1
       }
       return state
     } catch {
@@ -929,29 +965,14 @@ export function createDemo(storage, now = () => Date.now()) {
       n.read_at = iso()
     } else if (/^\/admin\/(departments|positions|grades)$/.test(path) && method === 'POST') {
       admin()
+      if (path === '/admin/positions')
+        fail('岗位固定为专业岗、管理岗、综合岗，不支持新增或修改', 409)
       const list = s[path.split('/')[2]]
       result = { ...body, id: next(list) }
-      if (path === '/admin/positions') {
-        if (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 100) {
-          fail('请填写岗位名称（1至100字）', 400)
-        }
-        const type = body.positionType ?? 'GENERAL'
-        if (!['PROFESSIONAL', 'MANAGEMENT', 'GENERAL'].includes(type)) fail('岗位类型不合法', 400)
-        result.position_type = type
-        delete result.positionType
-      }
       list.push(result)
     } else if (/^\/admin\/positions\/\d+$/.test(path) && method === 'PUT') {
       admin()
-      const position = s.positions.find((row) => row.id === id) || fail('岗位不存在', 404)
-      const type = body.positionType ?? 'GENERAL'
-      if (!['PROFESSIONAL', 'MANAGEMENT', 'GENERAL'].includes(type)) fail('岗位类型不合法', 400)
-      if (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 100) {
-        fail('请填写岗位名称（1至100字）', 400)
-      }
-      Object.assign(position, { name: body.name.trim(), position_type: type })
-      log('POSITION_UPDATE', id, body.name)
-      result = position
+      fail('岗位固定为专业岗、管理岗、综合岗，不支持新增或修改', 409)
     } else if (/^\/admin\/users\/\d+\/manager-scope\/\d+$/.test(path) && method === 'DELETE') {
       admin()
       const user = s.users.find((row) => row.id === id) || fail('员工不存在', 404)

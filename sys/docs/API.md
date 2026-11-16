@@ -1,26 +1,20 @@
 # 后端接口与Vue联调
 
-## 2026-11-16：岗位分类、路线分配与加课审批
+## 2026-11-16：固定三岗位、路线分配与加课审批
 
 权限代码沿用 `EMPLOYEE` / `INSTRUCTOR` / `MANAGER` / `ADMIN`，界面名称分别为普通员工、内训师、部门负责人、组织发展部。同一账号可兼任，普通员工身份保留。部门负责人必须配置 `manager-scope`，所属部门不等于授权部门。
 
-`GET /organization` 的具体岗位新增 `position_type`；另提供 `positionTypes` 与 `roles` 字典。`GET /admin/users` 各行补充 `roles`、`manager_department_ids`。
+`GET /organization` 的 `positions` 只返回专业岗、管理岗、综合岗三条真实数据库记录，沿用各自的 `id`。`position_type` 和 `positionTypes` 保留为兼容内部代码，不表示另有子岗位或分类管理。`GET /admin/users` 各行包含 `roles`、`manager_department_ids`。
 
-`POST /admin/positions` 新建或 `PUT /admin/positions/{id}` 修改具体岗位，组织发展部权限：
+岗位不可新增、改名或重新分类。兼容旧客户端的 `POST /admin/positions`、`PUT /admin/positions/{id}` 对组织发展部返回409及固定岗位说明，其他角色403，均不写入数据库。`PUT /admin/users/{id}` 可更新姓名、部门、岗位和职级；岗位必须引用这三个固定选项之一，不根据岗位自动授予角色。
 
-```json
-{"name":"专业工程师","positionType":"PROFESSIONAL"}
-```
-
-类型只能是 `PROFESSIONAL`（专业岗）、`MANAGEMENT`（管理岗）、`GENERAL`（综合岗）。旧请求省略类型时默认综合岗。`PUT /admin/users/{id}` 可更新姓名、部门、具体岗位和职级，组织引用必须存在。
-
-`POST /paths/{id}/assign` 现须提交所选具体部门、具体岗位及人员，替代下方旧的仅人员示例：
+`POST /paths/{id}/assign` 须提交所选部门、岗位及人员，替代下方旧的仅人员示例。岗位编号从 `GET /organization` 取得，不固定为示例中的2：
 
 ```json
 {"departmentId":2,"positionId":2,"userIds":[8,10]}
 ```
 
-整批核验人员启用状态、所选部门与岗位、路线适用部门和具体岗位约束后才分配；任一不符返回400，不产生部分分配。
+整批核验人员启用状态、所选部门与岗位、路线适用部门和岗位约束后才分配；任一不符返回400，不产生部分分配。
 
 | 接口 | 权限与用途 |
 | --- | --- |
@@ -44,7 +38,7 @@
 
 直接授权体为 `{"courseIds":[3],"userIds":[10],"reason":"指定个人专项学习"}`，成功返回 `user_count`、`course_count`。重复授权不重置已完成记录。两类批量操作均先验证整批再写入，通知和审计同事务提交。
 
-已有数据库先执行 `02-add-path-departments.sql` 和 `03-position-types-learning-requests.sql` 后部署新版。详细规则见 [岗位角色与加课流程V1.2](岗位角色与加课流程V1.2.md)。
+已有数据库依次执行02、03、04增量脚本后部署新版；04归并旧岗位并保留映射存档。详细规则见 [岗位角色与加课流程V1.2](岗位角色与加课流程V1.2.md)。
 
 开发访问前缀：`http://localhost:8080/training/api`。除登录、健康检查、限定文件凭证的media入口外，均发送`Authorization: Bearer <token>`。推荐Vue开发服务器将`/api`代理到Tomcat `/training/api`，上线使用同域反向代理。
 

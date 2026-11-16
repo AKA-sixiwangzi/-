@@ -70,7 +70,7 @@ public class IdentityController {
   public Object organization() {
     return row(
         "departments", db.departments(),
-        "positions", db.positions(),
+        "positions", db.positions().stream().filter(IdentityMapper::fixedPosition).toList(),
         "grades", db.grades(),
         "positionTypes", List.of(
             row("code", "PROFESSIONAL", "name", "专业岗"),
@@ -175,31 +175,15 @@ public class IdentityController {
   }
 
   @PostMapping("/admin/positions")
-  public Object position(@Valid @RequestBody Requests.Position r) {
+  public Object position(@RequestBody(required = false) Requests.Position r) {
     Current.actor().requireAdmin();
-    Map<String, Object> v = row("name", r.name(), "position_type", positionType(r.positionType()));
-    db.position(v);
-    db.audit(Current.actor().id(), "POSITION_CREATE", v.get("id").toString(), r.name());
-    return v;
+    throw new Problem(409, "岗位固定为专业岗、管理岗、综合岗，不支持新增或修改");
   }
 
   @PutMapping("/admin/positions/{id}")
-  public Object positionUpdate(@PathVariable long id, @Valid @RequestBody Requests.Position r) {
+  public Object positionUpdate(@PathVariable long id, @RequestBody(required = false) Requests.Position r) {
     Current.actor().requireAdmin();
-    Map<String, Object> v =
-        row("id", id, "name", r.name(), "position_type", positionType(r.positionType()));
-    Problem.require(db.positionUpdate(v) == 1, 404, "岗位不存在");
-    db.audit(Current.actor().id(), "POSITION_UPDATE", Long.toString(id), r.name());
-    return v;
-  }
-
-  private String positionType(String type) {
-    String result = type == null ? "GENERAL" : type;
-    Problem.require(
-        Set.of("PROFESSIONAL", "MANAGEMENT", "GENERAL").contains(result),
-        400,
-        "岗位类型只能是专业岗、管理岗或综合岗");
-    return result;
+    throw new Problem(409, "岗位固定为专业岗、管理岗、综合岗，不支持新增或修改");
   }
 
   private void validateOrganization(Long department, Long position, Long grade) {
@@ -208,9 +192,10 @@ public class IdentityController {
         400,
         "所选部门不存在");
     Problem.require(
-        position == null || db.positions().stream().anyMatch(p -> id(p, "id") == position),
+        position == null || db.positions().stream()
+            .anyMatch(p -> IdentityMapper.fixedPosition(p) && id(p, "id") == position),
         400,
-        "所选岗位不存在");
+        "岗位仅支持专业岗、管理岗、综合岗，请刷新岗位选项");
     Problem.require(
         grade == null || db.grades().stream().anyMatch(g -> id(g, "id") == grade),
         400,
