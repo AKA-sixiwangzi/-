@@ -17,6 +17,7 @@ class MapperConfigurationTest {
           LearningMapper.class,
           WarningMapper.class,
           ProgramMapper.class,
+          LearningRequestMapper.class,
           ExamMapper.class,
           AiMapper.class,
           ResultMapper.class

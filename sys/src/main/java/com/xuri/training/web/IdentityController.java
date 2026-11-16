@@ -68,18 +68,38 @@ public class IdentityController {
 
   @GetMapping("/organization")
   public Object organization() {
-    return row("departments", db.departments(), "positions", db.positions(), "grades", db.grades());
+    return row(
+        "departments", db.departments(),
+        "positions", db.positions(),
+        "grades", db.grades(),
+        "positionTypes", List.of(
+            row("code", "PROFESSIONAL", "name", "专业岗"),
+            row("code", "MANAGEMENT", "name", "管理岗"),
+            row("code", "GENERAL", "name", "综合岗")),
+        "roles", List.of(
+            row("code", "EMPLOYEE", "name", "普通员工"),
+            row("code", "INSTRUCTOR", "name", "内训师"),
+            row("code", "MANAGER", "name", "部门负责人"),
+            row("code", "ADMIN", "name", "组织发展部")));
   }
 
   @GetMapping("/admin/users")
   public Object users(@RequestParam(defaultValue = "0") int offset) {
     Current.actor().requireAdmin();
     Problem.require(offset >= 0, 400, "偏移量不合法");
-    return db.users(offset);
+    return db.users(offset).stream().map(user -> {
+      Map<String, Object> result = new HashMap<>(user);
+      long id = id(user, "id");
+      result.put("roles", db.roles(id));
+      result.put("manager_department_ids", db.managerDepartmentIds(id));
+      return result;
+    }).toList();
   }
 
   @PostMapping("/admin/users")
   public Object create(@Valid @RequestBody Requests.User r) {
+    Current.actor().requireAdmin();
+    validateOrganization(r.departmentId(), r.positionId(), r.gradeId());
     return service.create(
         r.username(), r.password(), r.displayName(), r.departmentId(), r.positionId(), r.gradeId());
   }
@@ -92,6 +112,7 @@ public class IdentityController {
   @PutMapping("/admin/users/{id}")
   public void profile(@PathVariable long id, @Valid @RequestBody Requests.UserProfile r) {
     Current.actor().requireAdmin();
+    validateOrganization(r.departmentId(), r.positionId(), r.gradeId());
     com.xuri.training.common.Problem.require(
         db.profileUpdate(
                 row(
@@ -124,7 +145,11 @@ public class IdentityController {
   public void scope(@PathVariable long id, @Valid @RequestBody Requests.Scope r) {
     Current.actor().requireAdmin();
     found(db.profile(id));
-    Problem.require(db.roles(id).contains("MANAGER"), 400, "请先授予部门主管角色");
+    Problem.require(db.roles(id).contains("MANAGER"), 400, "请先授予部门负责人角色");
+    Problem.require(
+        db.departments().stream().anyMatch(d -> id(d, "id") == r.departmentId()),
+        400,
+        "所选部门不存在");
     db.managerScope(id, r.departmentId());
     db.audit(
         Current.actor().id(), "MANAGER_SCOPE", Long.toString(id), Long.toString(r.departmentId()));
@@ -150,11 +175,46 @@ public class IdentityController {
   }
 
   @PostMapping("/admin/positions")
-  public Object position(@Valid @RequestBody Requests.Name r) {
+  public Object position(@Valid @RequestBody Requests.Position r) {
     Current.actor().requireAdmin();
-    Map<String, Object> v = row("name", r.name());
+    Map<String, Object> v = row("name", r.name(), "position_type", positionType(r.positionType()));
     db.position(v);
+    db.audit(Current.actor().id(), "POSITION_CREATE", v.get("id").toString(), r.name());
     return v;
+  }
+
+  @PutMapping("/admin/positions/{id}")
+  public Object positionUpdate(@PathVariable long id, @Valid @RequestBody Requests.Position r) {
+    Current.actor().requireAdmin();
+    Map<String, Object> v =
+        row("id", id, "name", r.name(), "position_type", positionType(r.positionType()));
+    Problem.require(db.positionUpdate(v) == 1, 404, "岗位不存在");
+    db.audit(Current.actor().id(), "POSITION_UPDATE", Long.toString(id), r.name());
+    return v;
+  }
+
+  private String positionType(String type) {
+    String result = type == null ? "GENERAL" : type;
+    Problem.require(
+        Set.of("PROFESSIONAL", "MANAGEMENT", "GENERAL").contains(result),
+        400,
+        "岗位类型只能是专业岗、管理岗或综合岗");
+    return result;
+  }
+
+  private void validateOrganization(Long department, Long position, Long grade) {
+    Problem.require(
+        department == null || db.departments().stream().anyMatch(d -> id(d, "id") == department),
+        400,
+        "所选部门不存在");
+    Problem.require(
+        position == null || db.positions().stream().anyMatch(p -> id(p, "id") == position),
+        400,
+        "所选岗位不存在");
+    Problem.require(
+        grade == null || db.grades().stream().anyMatch(g -> id(g, "id") == grade),
+        400,
+        "所选职级不存在");
   }
 
   @PostMapping("/admin/grades")

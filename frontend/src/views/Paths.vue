@@ -1,12 +1,13 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, perform, ui } from '../lib/api.js'
+import { api, perform, ui, session } from '../lib/api.js'
 import { useLoad } from '../lib/load.js'
 import Icon from '../components/Icon.vue'
 import Modal from '../components/Modal.vue'
 import LoadState from '../components/LoadState.vue'
 import Empty from '../components/Empty.vue'
+import { POSITION_TYPES, positionLabel } from '../lib/organization.js'
 import {
   departmentScopeLabel,
   isAllDepartments,
@@ -26,7 +27,31 @@ const selectedDepartments = computed(() =>
   org.value.departments.filter((department) => form.value.departmentIds?.includes(department.id)),
 )
 const eligibleUsers = computed(() =>
-  users.value.filter((user) => user.active && userMatchesDepartmentScope(user, selected.value)),
+  users.value.filter(
+    (user) =>
+      user.active &&
+      userMatchesDepartmentScope(user, selected.value) &&
+      user.department_id === form.value.departmentId &&
+      user.position_id === form.value.positionId &&
+      (!selected.value?.position_id || user.position_id === selected.value.position_id),
+  ),
+)
+const eligibleDepartments = computed(() =>
+  org.value.departments.filter(
+    (department) =>
+      isAllDepartments(selected.value) || selected.value?.department_ids?.includes(department.id),
+  ),
+)
+const eligiblePositions = computed(() =>
+  org.value.positions.filter(
+    (position) => !selected.value?.position_id || position.id === selected.value.position_id,
+  ),
+)
+watch(
+  () => [form.value.departmentId, form.value.positionId],
+  () => {
+    if (dialog.value === 'assign') form.value.userIds = []
+  },
 )
 const invalidDepartmentSelection = computed(
   () => dialog.value === 'path' && !form.value.allDepartments && !form.value.departmentIds?.length,
@@ -36,14 +61,10 @@ function setDepartmentMode(all) {
   if (all) form.value.departmentIds = []
 }
 const { loading, error, reload } = useLoad(async () => {
-  rows.value = await api('/paths')
+  ;[rows.value, org.value] = await Promise.all([api('/paths'), api('/organization')])
   if (rows.value.length) detail.value = await api('/paths/' + rows.value[0].id)
   if (manage.value)
-    [courses.value, users.value, org.value] = await Promise.all([
-      api('/courses'),
-      api('/admin/users'),
-      api('/organization'),
-    ])
+    [courses.value, users.value] = await Promise.all([api('/courses'), api('/admin/users')])
 })
 async function choose(id) {
   await perform(async () => (detail.value = await api('/paths/' + id)))
@@ -55,7 +76,7 @@ function open(type, p) {
       ? { title: '', positionId: null, gradeId: null, allDepartments: true, departmentIds: [] }
       : type === 'stage'
         ? { title: '', sortOrder: (detail.value?.stages.length || 0) + 1, courseIds: [] }
-        : { userIds: [] }
+        : { userIds: [], departmentId: null, positionId: p?.position_id || null }
   dialog.value = type
 }
 async function submit() {
@@ -108,6 +129,19 @@ async function submit() {
               departmentScopeLabel(detail.path, org.departments)
             }}
           </p>
+          <p class="scope-summary">
+            适用岗位：{{
+              detail.path.position_id
+                ? positionLabel(org.positions.find((p) => p.id === detail.path.position_id))
+                : '不限定岗位'
+            }}
+          </p>
+          <RouterLink
+            v-if="session.me?.roles.includes('MANAGER')"
+            to="/learning-requests"
+            class="text-link"
+            >申请补充课程<Icon name="right" :size="13"
+          /></RouterLink>
           <p class="caption">
             完成阶段课程并通过关联考试，即可解锁下一阶段。已有有效学习结果可复用。
           </p>
@@ -253,7 +287,17 @@ async function submit() {
             ><span>适用岗位</span
             ><select v-model="form.positionId">
               <option :value="null">不限定</option>
-              <option v-for="p in org.positions" :value="p.id" :key="p.id">{{ p.name }}</option>
+              <optgroup v-for="type in POSITION_TYPES" :key="type.value" :label="type.label">
+                <option
+                  v-for="p in org.positions.filter(
+                    (p) => (p.position_type || 'GENERAL') === type.value,
+                  )"
+                  :value="p.id"
+                  :key="p.id"
+                >
+                  {{ p.name }}
+                </option>
+              </optgroup>
             </select></label
           ><label class="field"
             ><span>适用职级</span
@@ -282,26 +326,62 @@ async function submit() {
             如需关联阶段考试，请在“题库与考试”中使用阶段 ID 配置，再发布路线。
           </p></template
         >
-        <div v-if="dialog === 'assign'" class="field span-2">
-          <span>选择员工</span>
-          <p class="notice">
-            适用部门：{{ departmentScopeLabel(selected, org.departments) }}。请手动勾选参加人员。
+        <template v-if="dialog === 'assign'">
+          <p class="notice span-2">
+            先选择部门和具体岗位，再勾选参加人员。适用部门：{{
+              departmentScopeLabel(selected, org.departments)
+            }}。
           </p>
-          <div class="check-list">
-            <label v-for="u in eligibleUsers" :key="u.id"
-              ><input type="checkbox" v-model="form.userIds" :value="u.id" />{{
-                u.display_name
-              }}</label
+          <label class="field"
+            ><span>部门</span
+            ><select v-model="form.departmentId" required>
+              <option :value="null" disabled>请选择部门</option>
+              <option
+                v-for="department in eligibleDepartments"
+                :key="department.id"
+                :value="department.id"
+              >
+                {{ department.name }}
+              </option>
+            </select></label
+          >
+          <label class="field"
+            ><span>岗位</span
+            ><select v-model="form.positionId" required>
+              <option :value="null" disabled>请选择具体岗位</option>
+              <optgroup v-for="type in POSITION_TYPES" :key="type.value" :label="type.label">
+                <option
+                  v-for="position in eligiblePositions.filter(
+                    (p) => (p.position_type || 'GENERAL') === type.value,
+                  )"
+                  :key="position.id"
+                  :value="position.id"
+                >
+                  {{ position.name }}
+                </option>
+              </optgroup>
+            </select></label
+          >
+          <div class="field span-2">
+            <span
+              >选择员工 <small class="muted">已选 {{ form.userIds.length }} 人</small></span
             >
-          </div>
-          <p v-if="!eligibleUsers.length" class="scope-empty">
-            {{
-              isAllDepartments(selected)
-                ? '暂无可分配的启用员工，请先添加员工。'
-                : '所选部门暂无可分配的启用员工，请先维护员工所属部门。'
-            }}
-          </p>
-        </div>
+            <div class="check-list">
+              <label v-for="u in eligibleUsers" :key="u.id"
+                ><input type="checkbox" v-model="form.userIds" :value="u.id" />{{
+                  u.display_name
+                }}</label
+              >
+            </div>
+            <p v-if="!eligibleUsers.length" class="scope-empty">
+              {{
+                !form.departmentId || !form.positionId
+                  ? '请选择部门和岗位后查看员工。'
+                  : '该部门和岗位下暂无可分配的启用员工，请先维护员工的部门和岗位。'
+              }}
+            </p>
+          </div></template
+        >
       </div>
       <footer class="form-actions">
         <button type="button" class="btn white" @click="dialog = ''">取消</button
@@ -310,7 +390,8 @@ async function submit() {
           :disabled="
             ui.busy > 0 ||
             invalidDepartmentSelection ||
-            (dialog === 'assign' && !form.userIds?.length)
+            (dialog === 'assign' &&
+              (!form.departmentId || !form.positionId || !form.userIds?.length))
           "
         >
           保存

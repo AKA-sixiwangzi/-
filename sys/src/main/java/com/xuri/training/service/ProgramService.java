@@ -126,9 +126,39 @@ public class ProgramService {
 
   @Transactional
   public void assign(long path, List<Long> ids) {
+    assignMembers(path, ids, null, null);
+  }
+
+  @Transactional
+  public void assign(long path, List<Long> ids, Long departmentId, Long positionId) {
     Current.actor().requireAdmin();
+    Problem.require(departmentId != null && positionId != null, 400, "请先选择部门和具体岗位");
+    Problem.require(
+        users.departments().stream().anyMatch(d -> id(d, "id") == departmentId),
+        400,
+        "所选部门不存在，请刷新后重试");
+    Problem.require(
+        users.positions().stream().anyMatch(p -> id(p, "id") == positionId),
+        400,
+        "所选岗位不存在，请刷新后重试");
+    assignMembers(path, ids, departmentId, positionId);
+  }
+
+  private void assignMembers(long path, List<Long> ids, Long departmentId, Long positionId) {
+    Current.actor().requireAdmin();
+    Problem.require(
+        ids != null && !ids.isEmpty() && ids.size() <= 1000
+            && ids.stream().allMatch(user -> user != null && user > 0),
+        400,
+        "请至少选择一名有效员工");
     Map<String, Object> p = found(db.lockPath(path));
     Problem.require(Boolean.TRUE.equals(p.get("published")), 409, "路线未发布");
+    Object routePosition = p.get("position_id");
+    Problem.require(
+        positionId == null || routePosition == null
+            || routePosition instanceof Number number && number.longValue() == positionId,
+        400,
+        "所选岗位不符合路线的适用岗位");
     Set<Long> members = new TreeSet<>(ids);
     boolean all = allDepartments(p);
     Set<Long> departments = new HashSet<>();
@@ -141,11 +171,29 @@ public class ProgramService {
     // Lock and validate the whole batch before writing enrollments or sending notifications.
     for (long user : members) {
       Map<String, Object> employee = found(users.lockUser(user));
+      Problem.require(Boolean.TRUE.equals(employee.get("active")), 400, "不能分配已停用的员工");
       Object department = employee.get("department_id");
+      Object employeePosition = employee.get("position_id");
       Problem.require(
           all || department instanceof Number number && departments.contains(number.longValue()),
           400,
           "所选员工不在该路线的适用部门范围内");
+      Problem.require(
+          departmentId == null
+              || department instanceof Number number && number.longValue() == departmentId,
+          400,
+          "所选员工不属于选择的部门");
+      Problem.require(
+          positionId == null
+              || employeePosition instanceof Number number && number.longValue() == positionId,
+          400,
+          "所选员工不属于选择的岗位");
+      Problem.require(
+          routePosition == null || routePosition instanceof Number expected
+              && employeePosition instanceof Number actual
+              && actual.longValue() == expected.longValue(),
+          400,
+          "所选员工不符合路线的适用岗位");
     }
     for (long user : members) {
       db.assign(path, user);

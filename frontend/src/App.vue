@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter, isNavigationFailure, NavigationFailureType } from 'vue-router'
-import { session, ui, perform, switchDemo, logout, api } from './lib/api.js'
+import { session, ui, perform, switchDemo, logout, api, demo } from './lib/api.js'
 import Icon from './components/Icon.vue'
 const route = useRoute(),
   router = useRouter(),
@@ -9,7 +9,8 @@ const route = useRoute(),
   unread = ref(0)
 const roles = computed(() => session.me?.roles || []),
   admin = computed(() => roles.value.includes('ADMIN')),
-  teacher = computed(() => roles.value.includes('INSTRUCTOR'))
+  teacher = computed(() => roles.value.includes('INSTRUCTOR')),
+  manager = computed(() => roles.value.includes('MANAGER'))
 const user = computed(() => session.me?.user || {}),
   name = computed(() => user.value.display_name || '学习者')
 const groups = computed(() => [
@@ -44,14 +45,23 @@ const groups = computed(() => [
             ['/company', 'chart', '公司培训看板'],
             ['/manage/plans', 'calendar', '计划管理'],
             ['/manage/paths', 'layers', '路线管理'],
+            ['/learning-requests', 'book', '课程授权与需求'],
             ['/reviews', 'shield', '课程审核'],
             ['/warnings', 'warning', '预警中心'],
             ['/users', 'users', '组织与人员'],
           ],
         },
       ]
-    : roles.value.includes('MANAGER')
-      ? [{ label: '团队管理', items: [['/company', 'chart', '部门培训看板']] }]
+    : manager.value
+      ? [
+          {
+            label: '团队管理',
+            items: [
+              ['/company', 'chart', '部门培训看板'],
+              ['/learning-requests', 'book', '加课需求'],
+            ],
+          },
+        ]
       : []),
 ])
 watch(
@@ -76,6 +86,9 @@ async function persona(e) {
       return
     await switchDemo(id)
   })
+}
+function managerDemoId() {
+  return demo.read().users.find((employee) => employee.username === 'zhao_manager')?.id || 11
 }
 async function leave() {
   await perform(logout)
@@ -112,7 +125,7 @@ async function leave() {
       </nav>
       <div class="sidebar-bottom">
         <div class="share-note">
-          <Icon name="ai" :size="20" /><strong>每个人，都可以成为讲师</strong>
+          <Icon name="ai" :size="20" /><strong>每个人，都可以成为内训师</strong>
           <p>让你的好经验，帮助更多同事。</p>
           <RouterLink to="/creation">分享我的经验 <Icon name="arrow" :size="15" /></RouterLink>
         </div>
@@ -142,10 +155,11 @@ async function leave() {
               :value="session.demoId"
               @change="persona"
             >
-              <option :value="7">员工 · 张楠</option>
-              <option :value="8">讲师 · 陈知行</option>
-              <option :value="1">管理员 · 林</option>
-              <option :value="2">复核管理员 · 周</option></select
+              <option :value="7">普通员工 · 张楠</option>
+              <option :value="8">内训师 · 陈知行</option>
+              <option :value="managerDemoId()">部门负责人 · 赵</option>
+              <option :value="1">组织发展部 · 林</option>
+              <option :value="2">组织发展部 · 周（复核）</option></select
             ><Icon name="down" :size="13" /></label
           ><RouterLink to="/messages" class="icon-btn notification-btn" aria-label="消息中心"
             ><Icon name="bell" /><i v-if="unread"
@@ -154,7 +168,15 @@ async function leave() {
             <span class="avatar">{{ name[0] }}</span>
             <div>
               <b>{{ name }}</b
-              ><small>{{ admin ? '培训管理员' : teacher ? '员工 / 讲师' : '企业员工' }}</small>
+              ><small>{{
+                admin
+                  ? '组织发展部'
+                  : manager
+                    ? '部门负责人'
+                    : teacher
+                      ? '普通员工 / 内训师'
+                      : '普通员工'
+              }}</small>
             </div>
           </div>
           <button

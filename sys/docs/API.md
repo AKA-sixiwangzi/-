@@ -1,5 +1,51 @@
 # 后端接口与Vue联调
 
+## 2026-11-16：岗位分类、路线分配与加课审批
+
+权限代码沿用 `EMPLOYEE` / `INSTRUCTOR` / `MANAGER` / `ADMIN`，界面名称分别为普通员工、内训师、部门负责人、组织发展部。同一账号可兼任，普通员工身份保留。部门负责人必须配置 `manager-scope`，所属部门不等于授权部门。
+
+`GET /organization` 的具体岗位新增 `position_type`；另提供 `positionTypes` 与 `roles` 字典。`GET /admin/users` 各行补充 `roles`、`manager_department_ids`。
+
+`POST /admin/positions` 新建或 `PUT /admin/positions/{id}` 修改具体岗位，组织发展部权限：
+
+```json
+{"name":"专业工程师","positionType":"PROFESSIONAL"}
+```
+
+类型只能是 `PROFESSIONAL`（专业岗）、`MANAGEMENT`（管理岗）、`GENERAL`（综合岗）。旧请求省略类型时默认综合岗。`PUT /admin/users/{id}` 可更新姓名、部门、具体岗位和职级，组织引用必须存在。
+
+`POST /paths/{id}/assign` 现须提交所选具体部门、具体岗位及人员，替代下方旧的仅人员示例：
+
+```json
+{"departmentId":2,"positionId":2,"userIds":[8,10]}
+```
+
+整批核验人员启用状态、所选部门与岗位、路线适用部门和具体岗位约束后才分配；任一不符返回400，不产生部分分配。
+
+| 接口 | 权限与用途 |
+| --- | --- |
+| `GET /learning-requests/options` | 负责人/组织发展部；返回可管理的启用员工、已发布课程及有关成长路线 |
+| `GET /learning-requests` | 负责人只能查本人申请，组织发展部查全部；最近200条 |
+| `POST /learning-requests` | 负责人/组织发展部提交需求，仅为待审批，不开通学习 |
+| `POST /learning-requests/{id}/review` | 组织发展部审批，必须填写结果与意见 |
+| `POST /admin/course-grants` | 组织发展部直接为指定员工开通已发布课程 |
+
+选项响应为 `{users:[],courses:[],paths:[]}`，每条路线增加 `user_ids`，仅含调用者可管理且已参加路线的启用员工。负责人只获得已发布课程的目录元数据，此接口不开放视频、讲义或学习权限。
+
+提交需求示例：
+
+```json
+{"pathId":null,"courseIds":[3],"userIds":[10],"reason":"岗位任务需要补充学习"}
+```
+
+可选关联 `pathId` 要求目标员工已参加该路线；课程是个人补充任务，不修改共享路线阶段。需求列表各条包含申请人、可选路线、状态、原因、课程数组、员工数组、审批人、审批意见与时间。
+
+审批体为 `{"approve":true,"note":"同意补充学习"}` 或 `{"approve":false,"note":"请补充需求依据"}`。`approve` 与非空意见均必填。审批前重验课程发布状态、员工和申请人启用状态、申请人当前角色、当前授权部门及路线参加关系。已审批需求返回409；驳回不授权。
+
+直接授权体为 `{"courseIds":[3],"userIds":[10],"reason":"指定个人专项学习"}`，成功返回 `user_count`、`course_count`。重复授权不重置已完成记录。两类批量操作均先验证整批再写入，通知和审计同事务提交。
+
+已有数据库先执行 `02-add-path-departments.sql` 和 `03-position-types-learning-requests.sql` 后部署新版。详细规则见 [岗位角色与加课流程V1.2](岗位角色与加课流程V1.2.md)。
+
 开发访问前缀：`http://localhost:8080/training/api`。除登录、健康检查、限定文件凭证的media入口外，均发送`Authorization: Bearer <token>`。推荐Vue开发服务器将`/api`代理到Tomcat `/training/api`，上线使用同域反向代理。
 
 成功返回业务对象/列表，无统一外层包装；无返回值操作通常返回200空响应。错误为`{"message":"说明"}`，服务器异常另有reference。401重新登录，403权限不足，404不存在，409业务条件不满足，429频率限制，503外部服务未配置。

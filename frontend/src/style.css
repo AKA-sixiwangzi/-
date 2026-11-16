@@ -2033,10 +2033,14 @@ td .actions {
   }
   .topbar-left {
     gap: 8px;
+    min-width: 0;
+    flex: 1;
   }
   .top-breadcrumb {
     font-size: 10px;
     gap: 6px;
+    min-width: 0;
+    overflow: hidden;
   }
   .top-breadcrumb > b {
     max-width: 90px;
@@ -2046,6 +2050,7 @@ td .actions {
   }
   .topbar-right {
     gap: 8px;
+    flex-shrink: 0;
   }
   .profile {
     padding-left: 8px;

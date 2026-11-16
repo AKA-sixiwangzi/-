@@ -129,7 +129,7 @@ class PathDepartmentRulesTest {
   @Test
   void allDepartmentRouteAcceptsEmployeesWithoutDepartment() {
     when(db.lockPath(10)).thenReturn(row("id", 10L, "published", true, "all_departments", true));
-    when(users.lockUser(7)).thenReturn(row("id", 7L, "department_id", null));
+    when(users.lockUser(7)).thenReturn(row("id", 7L, "department_id", null, "active", true));
     service.assign(10, List.of(7L));
     verify(db).assign(10, 7);
     verify(db, never()).pathDepartments(anyLong());
@@ -139,7 +139,7 @@ class PathDepartmentRulesTest {
   void matchingDepartmentEmployeesCanBeAssigned() {
     when(db.lockPath(10)).thenReturn(row("id", 10L, "published", true, "all_departments", false));
     when(db.pathDepartments(10)).thenReturn(List.of(row("id", 1L, "name", "总经办")));
-    when(users.lockUser(7)).thenReturn(row("id", 7L, "department_id", 1L));
+    when(users.lockUser(7)).thenReturn(row("id", 7L, "department_id", 1L, "active", true));
     service.assign(10, List.of(7L, 7L));
     verify(db, times(1)).assign(10, 7);
   }
@@ -148,8 +148,8 @@ class PathDepartmentRulesTest {
   void wholeBatchIsValidatedBeforeAnyAssignmentOrNotification() {
     when(db.lockPath(10)).thenReturn(row("id", 10L, "published", true, "all_departments", false));
     when(db.pathDepartments(10)).thenReturn(List.of(row("id", 1L, "name", "总经办")));
-    when(users.lockUser(7)).thenReturn(row("id", 7L, "department_id", 1L));
-    when(users.lockUser(8)).thenReturn(row("id", 8L, "department_id", 2L));
+    when(users.lockUser(7)).thenReturn(row("id", 7L, "department_id", 1L, "active", true));
+    when(users.lockUser(8)).thenReturn(row("id", 8L, "department_id", 2L, "active", true));
     assertEquals(400, assertThrows(Problem.class, () -> service.assign(10, List.of(7L, 8L))).status);
     verify(db, never()).assign(anyLong(), anyLong());
     verify(courses, never()).enroll(anyLong(), anyLong());
@@ -160,7 +160,7 @@ class PathDepartmentRulesTest {
   void targetedRouteRejectsEmployeesWithoutDepartment() {
     when(db.lockPath(10)).thenReturn(row("id", 10L, "published", true, "all_departments", false));
     when(db.pathDepartments(10)).thenReturn(List.of(row("id", 1L, "name", "总经办")));
-    when(users.lockUser(7)).thenReturn(row("id", 7L, "department_id", null));
+    when(users.lockUser(7)).thenReturn(row("id", 7L, "department_id", null, "active", true));
     assertThrows(Problem.class, () -> service.assign(10, List.of(7L)));
     verify(db, never()).assign(anyLong(), anyLong());
   }

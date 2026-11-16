@@ -18,6 +18,7 @@ import Users from '../views/Users.vue'
 import Messages from '../views/Messages.vue'
 import Settings from '../views/Settings.vue'
 import Login from '../views/Login.vue'
+import LearningRequests from '../views/LearningRequests.vue'
 const routes = [
   { path: '/', component: Home, meta: { title: '学习工作台' } },
   { path: '/courses', component: Courses, meta: { title: '课程中心' } },
@@ -40,6 +41,11 @@ const routes = [
   },
   { path: '/manage/plans', component: Plans, meta: { title: '培训计划管理', roles: ['ADMIN'] } },
   { path: '/manage/paths', component: Paths, meta: { title: '成长路线管理', roles: ['ADMIN'] } },
+  {
+    path: '/learning-requests',
+    component: LearningRequests,
+    meta: { title: '加课需求与授权', roles: ['ADMIN', 'MANAGER'] },
+  },
   { path: '/reviews', component: Reviews, meta: { title: '课程审核', roles: ['ADMIN'] } },
   { path: '/warnings', component: Warnings, meta: { title: '预警中心', roles: ['ADMIN'] } },
   {

@@ -1,0 +1,32 @@
+{
+  "date": "2026-11-16",
+  "feature": "岗位三分类、四类角色、部门岗位分配与个人加课",
+  "frontend": {
+    "tests": 33,
+    "passed": 33,
+    "failed": 0,
+    "build": "passed"
+  },
+  "backend": {
+    "tests": 108,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 107
+  },
+  "browser": {
+    "employeeGuard": true,
+    "managerDepartmentIsolation": true,
+    "pendingDoesNotGrant": true,
+    "approvalOnlyTargetsChosenEmployee": true,
+    "directAuthorizationVisibleToEmployee": true,
+    "jobTypeAndNameStored": true,
+    "routeDepartmentAndJobRequired": true,
+    "filterChangesClearSelection": true,
+    "mobileNoOverflow": true,
+    "reloadAndNetworkOfflineSubmission": true,
+    "pageErrors": []
+  },
+  "sqlServerMigrationExecuted": false,
+  "realDatabaseEndToEndTested": false
+}

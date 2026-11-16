@@ -34,6 +34,10 @@ public final class Requests {
   public record Name(
       @NotBlank @Size(max = 100) String name, Long parentId, @Min(0) int sortOrder) {}
 
+  public record Position(
+      @NotBlank @Size(max = 100) String name,
+      @Pattern(regexp = "PROFESSIONAL|MANAGEMENT|GENERAL") String positionType) {}
+
   public record Scope(@Positive long departmentId) {}
 
   public record Course(
@@ -79,6 +83,11 @@ public final class Requests {
       @NotEmpty @Size(max = 100) List<@Positive Long> courseIds) {}
 
   public record Members(@NotEmpty @Size(max = 1000) List<@Positive Long> userIds) {}
+
+  public record RouteMembers(
+      @NotNull @Positive Long departmentId,
+      @NotNull @Positive Long positionId,
+      @NotEmpty @Size(max = 1000) List<@NotNull @Positive Long> userIds) {}
 
   public record Plan(
       @NotBlank @Size(max = 200) String title,

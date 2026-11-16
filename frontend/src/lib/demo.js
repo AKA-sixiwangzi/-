@@ -1,5 +1,6 @@
 import { seed } from './seed.js'
 import { coverage, credit, sameChoices } from './rules.js'
+import { POSITION_TYPES, ROLE_LABELS } from './organization.js'
 import {
   normalizeDepartmentScope,
   departmentScopeView,
@@ -9,7 +10,36 @@ export const DEMO_KEY = 'xuri-demo-v1'
 export function createDemo(storage, now = () => Date.now()) {
   const read = () => {
     try {
-      return JSON.parse(storage.getItem(DEMO_KEY)) || seed()
+      const state = JSON.parse(storage.getItem(DEMO_KEY)) || seed()
+      state.learningRequests ||= []
+      state.positions.forEach((position) => (position.position_type ||= 'GENERAL'))
+      if (!state.learningRequestVersion) {
+        for (const [type, name] of [
+          ['PROFESSIONAL', '专业工程师'],
+          ['MANAGEMENT', '部门经理'],
+          ['GENERAL', '综合管理岗'],
+        ]) {
+          if (!state.positions.some((position) => position.position_type === type)) {
+            state.positions.push({
+              id: Math.max(0, ...state.positions.map((position) => position.id)) + 1,
+              name,
+              position_type: type,
+            })
+          }
+        }
+        if (!state.users.some((user) => user.username === 'zhao_manager')) {
+          const manager = seed().users.find((user) => user.username === 'zhao_manager')
+          manager.id = state.users.some((user) => user.id === manager.id)
+            ? Math.max(0, ...state.users.map((user) => user.id)) + 1
+            : manager.id
+          manager.position_id = state.positions.find(
+            (position) => position.position_type === 'MANAGEMENT',
+          ).id
+          state.users.push(manager)
+        }
+        state.learningRequestVersion = 1
+      }
+      return state
     } catch {
       return seed()
     }
@@ -31,6 +61,12 @@ export function createDemo(storage, now = () => Date.now()) {
     const admin = () => {
       if (!isAdmin) fail('需要管理员权限', 403)
     }
+    const managerOrAdmin = () => {
+      if (!isAdmin && !me.roles.includes('MANAGER')) fail('需要部门负责人或管理员权限', 403)
+    }
+    const canManageUser = (actor, user) =>
+      actor.roles.includes('ADMIN') ||
+      (actor.roles.includes('MANAGER') && (actor.scopes || []).includes(user.department_id))
     const course = (c) => s.courses.find((x) => x.id === Number(c)) || fail('课程不存在', 404)
     const manage = (c) => {
       const c0 = course(c)
@@ -80,6 +116,89 @@ export function createDemo(storage, now = () => Date.now()) {
     const grant = (u, c) => {
       if (!enrolled(u, c))
         s.enrollments.push({ user_id: u, course_id: c, completed: false, enrolled_at: iso() })
+    }
+    const idsFor = (ids, label, limit) => {
+      if (
+        !Array.isArray(ids) ||
+        !ids.length ||
+        ids.length > limit ||
+        ids.some((value) => !Number.isSafeInteger(value) || value <= 0)
+      )
+        fail(`${label}编号不合法或数量超出限制`, 400)
+      return [...new Set(ids)].sort((a, b) => a - b)
+    }
+    const requiredText = (text, label) => {
+      if (typeof text !== 'string' || !text.trim() || text.length > 1000) {
+        fail(`请填写${label}（1至1000字）`, 400)
+      }
+      return text.trim()
+    }
+    const organizationFields = (body) => {
+      for (const [key, list] of [
+        ['departmentId', s.departments],
+        ['positionId', s.positions],
+        ['gradeId', s.grades],
+      ]) {
+        if (body[key] != null && !list.some((row) => row.id === body[key])) {
+          fail('所选部门、岗位或职级不存在', 400)
+        }
+      }
+    }
+    const learningTargets = (actor, userIds, courseIds, pathId = null) => {
+      if (!actor?.active || !actor.roles.some((role) => ['ADMIN', 'MANAGER'].includes(role))) {
+        fail('申请人已无加课申请权限', 403)
+      }
+      const users = userIds.map((userId) => {
+        const user = s.users.find((row) => row.id === userId) || fail('员工不存在', 404)
+        if (!user.active) fail('所选员工已停用', 409)
+        if (!canManageUser(actor, user)) fail('所选员工不在授权部门范围内', 403)
+        return user
+      })
+      const courses = courseIds.map((courseId) => {
+        const row = course(courseId)
+        if (row.status !== 'PUBLISHED') fail('只能分配已发布课程', 409)
+        return row
+      })
+      if (pathId != null) {
+        if (!Number.isSafeInteger(pathId) || pathId <= 0) fail('成长路线编号不合法', 400)
+        const route = s.paths.find((row) => row.id === pathId) || fail('成长路线不存在', 404)
+        if (!route.published) fail('成长路线尚未发布', 409)
+        if (users.some((user) => !route.users.includes(user.id))) {
+          fail('所选员工尚未分配该成长路线', 409)
+        }
+      }
+      return { users, courses }
+    }
+    const userSummary = (user) => ({
+      id: user.id,
+      display_name: user.display_name,
+      department_id: user.department_id,
+      position_id: user.position_id,
+      grade_id: user.grade_id,
+      active: user.active,
+    })
+    const requestView = (request) => ({
+      ...request,
+      requester_name: s.users.find((user) => user.id === request.requester_id)?.display_name,
+      reviewer_name: s.users.find((user) => user.id === request.reviewer_id)?.display_name || null,
+      path_title: s.paths.find((route) => route.id === request.path_id)?.title || null,
+      courses: request.course_ids.map((courseId) => ({
+        id: courseId,
+        title: course(courseId).title,
+      })),
+      users: request.user_ids.map((userId) =>
+        userSummary(s.users.find((user) => user.id === userId)),
+      ),
+    })
+    const grantTargets = (users, courses, reason) => {
+      for (const user of users) {
+        for (const row of courses) grant(user.id, row.id)
+        notice(
+          user.id,
+          '新增个人学习课程',
+          courses.map((row) => row.title).join('、') + '。' + reason,
+        )
+      }
     }
     const examsFor = (stage, u) =>
       s.exams
@@ -180,12 +299,100 @@ export function createDemo(storage, now = () => Date.now()) {
           'LEARNING',
           'CONTENT_CREATION',
           ...(me.roles.includes('INSTRUCTOR') ? ['TEACHING'] : []),
+          ...(me.roles.includes('MANAGER') ? ['TEAM'] : []),
           ...(isAdmin ? ['ADMINISTRATION'] : []),
         ],
       }
     else if (path === '/organization')
-      result = { departments: s.departments, positions: s.positions, grades: s.grades }
-    else if (path === '/courses' && method === 'GET')
+      result = {
+        departments: s.departments,
+        positions: s.positions,
+        grades: s.grades,
+        positionTypes: POSITION_TYPES.map((type) => ({ code: type.value, name: type.label })),
+        roles: Object.entries(ROLE_LABELS).map(([code, name]) => ({ code, name })),
+      }
+    else if (path === '/learning-requests/options' && method === 'GET') {
+      managerOrAdmin()
+      const users = s.users.filter((user) => user.active && canManageUser(me, user))
+      result = {
+        users: users.map(userSummary),
+        courses: s.courses
+          .filter((row) => row.status === 'PUBLISHED')
+          .map((row) => ({ id: row.id, title: row.title, category: row.category })),
+        paths: s.paths
+          .filter((route) => route.published && users.some((user) => route.users.includes(user.id)))
+          .map((route) => ({
+            id: route.id,
+            title: route.title,
+            user_ids: users.filter((user) => route.users.includes(user.id)).map((user) => user.id),
+          })),
+      }
+    } else if (path === '/learning-requests' && method === 'GET') {
+      managerOrAdmin()
+      result = s.learningRequests
+        .filter((request) => isAdmin || request.requester_id === me.id)
+        .toReversed()
+        .map(requestView)
+    } else if (path === '/learning-requests' && method === 'POST') {
+      managerOrAdmin()
+      const userIds = idsFor(body.userIds, '员工', 1000)
+      const courseIds = idsFor(body.courseIds, '课程', 100)
+      const reason = requiredText(body.reason, '加课原因')
+      learningTargets(me, userIds, courseIds, body.pathId ?? null)
+      const request = {
+        id: next(s.learningRequests),
+        requester_id: me.id,
+        path_id: body.pathId ?? null,
+        user_ids: userIds,
+        course_ids: courseIds,
+        reason,
+        status: 'PENDING',
+        review_note: null,
+        reviewer_id: null,
+        created_at: iso(),
+        reviewed_at: null,
+      }
+      s.learningRequests.push(request)
+      s.users
+        .filter((user) => user.active && user.roles.includes('ADMIN'))
+        .forEach((user) => notice(user.id, '新的员工加课需求 #' + request.id, reason))
+      log('LEARNING_REQUEST_CREATE', request.id, reason)
+      result = requestView(request)
+    } else if (/^\/learning-requests\/\d+\/review$/.test(path) && method === 'POST') {
+      admin()
+      const request = s.learningRequests.find((row) => row.id === id) || fail('加课需求不存在', 404)
+      if (request.status !== 'PENDING') fail('加课需求已经处理，请刷新后查看', 409)
+      if (typeof body.approve !== 'boolean') fail('请选择审批结果', 400)
+      const note = requiredText(body.note, '处理意见')
+      if (body.approve) {
+        const requester = s.users.find((user) => user.id === request.requester_id)
+        const targets = learningTargets(
+          requester,
+          request.user_ids,
+          request.course_ids,
+          request.path_id,
+        )
+        grantTargets(targets.users, targets.courses, note)
+      }
+      Object.assign(request, {
+        status: body.approve ? 'APPROVED' : 'REJECTED',
+        reviewer_id: me.id,
+        review_note: note,
+        reviewed_at: iso(),
+      })
+      notice(request.requester_id, '加课需求已处理 #' + id, request.status + '：' + note)
+      log(body.approve ? 'LEARNING_REQUEST_APPROVE' : 'LEARNING_REQUEST_REJECT', id, note)
+      result = requestView(request)
+    } else if (path === '/admin/course-grants' && method === 'POST') {
+      admin()
+      const userIds = idsFor(body.userIds, '员工', 1000)
+      const courseIds = idsFor(body.courseIds, '课程', 100)
+      const reason = requiredText(body.reason, '授权原因')
+      const targets = learningTargets(me, userIds, courseIds)
+      grantTargets(targets.users, targets.courses, reason)
+      log('COURSE_GRANT', userIds.join(','), JSON.stringify({ courseIds, reason }))
+      result = { user_count: userIds.length, course_count: courseIds.length }
+    } else if (path === '/courses' && method === 'GET')
       result = s.courses.filter(
         (c) => c.status === 'PUBLISHED' && (isAdmin || enrolled(me.id, c.id)),
       )
@@ -441,14 +648,29 @@ export function createDemo(storage, now = () => Date.now()) {
       admin()
       const p = s.paths.find((p) => p.id === id)
       if (!p?.published) fail('路线未发布')
-      if (!Array.isArray(body.userIds) || !body.userIds.length) fail('请至少选择一名员工', 400)
-      const ids = [...new Set(body.userIds)]
+      if (
+        !s.departments.some((department) => department.id === body.departmentId) ||
+        !s.positions.some((position) => position.id === body.positionId)
+      )
+        fail('请选择有效的部门和岗位', 400)
+      const ids = idsFor(body.userIds, '员工', 1000)
       const members = ids.map(
         (userId) => s.users.find((user) => user.id === userId) || fail('员工不存在', 404),
       )
       if (members.some((user) => !userMatchesDepartmentScope(user, p))) {
         fail('所选员工不在路线适用部门范围内', 400)
       }
+      if (members.some((user) => !user.active)) fail('所选员工已停用', 409)
+      if (p.position_id != null && members.some((user) => user.position_id !== p.position_id)) {
+        fail('所选员工不在路线适用岗位范围内', 400)
+      }
+      if (
+        members.some(
+          (user) =>
+            user.department_id !== body.departmentId || user.position_id !== body.positionId,
+        )
+      )
+        fail('所选员工与选定部门或岗位不一致', 400)
       p.users = [...new Set([...p.users, ...ids])]
       ids.forEach((u) => p.stages.forEach((t) => t.courseIds.forEach((c) => grant(u, c))))
     } else if (/^\/paths\/\d+$/.test(path)) {
@@ -709,18 +931,67 @@ export function createDemo(storage, now = () => Date.now()) {
       admin()
       const list = s[path.split('/')[2]]
       result = { ...body, id: next(list) }
+      if (path === '/admin/positions') {
+        if (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 100) {
+          fail('请填写岗位名称（1至100字）', 400)
+        }
+        const type = body.positionType ?? 'GENERAL'
+        if (!['PROFESSIONAL', 'MANAGEMENT', 'GENERAL'].includes(type)) fail('岗位类型不合法', 400)
+        result.position_type = type
+        delete result.positionType
+      }
       list.push(result)
+    } else if (/^\/admin\/positions\/\d+$/.test(path) && method === 'PUT') {
+      admin()
+      const position = s.positions.find((row) => row.id === id) || fail('岗位不存在', 404)
+      const type = body.positionType ?? 'GENERAL'
+      if (!['PROFESSIONAL', 'MANAGEMENT', 'GENERAL'].includes(type)) fail('岗位类型不合法', 400)
+      if (typeof body.name !== 'string' || !body.name.trim() || body.name.length > 100) {
+        fail('请填写岗位名称（1至100字）', 400)
+      }
+      Object.assign(position, { name: body.name.trim(), position_type: type })
+      log('POSITION_UPDATE', id, body.name)
+      result = position
+    } else if (/^\/admin\/users\/\d+\/manager-scope\/\d+$/.test(path) && method === 'DELETE') {
+      admin()
+      const user = s.users.find((row) => row.id === id) || fail('员工不存在', 404)
+      const departmentId = Number(path.split('/').at(-1))
+      user.scopes = (user.scopes || []).filter((scope) => scope !== departmentId)
+      log('MANAGER_SCOPE_REVOKE', id, String(departmentId))
     } else if (/^\/admin\/users\/\d+\/manager-scope$/.test(path)) {
       admin()
       const u = s.users.find((u) => u.id === id) || fail('员工不存在')
-      if (!u.roles.includes('MANAGER')) fail('请先授予部门主管角色')
+      if (!u.roles.includes('MANAGER')) fail('请先授予部门负责人角色')
+      if (!s.departments.some((department) => department.id === body.departmentId)) {
+        fail('部门不存在', 400)
+      }
       u.scopes = [...new Set([...(u.scopes || []), body.departmentId])]
+      log('MANAGER_SCOPE', id, String(body.departmentId))
+    } else if (/^\/admin\/users\/\d+$/.test(path) && method === 'PUT') {
+      admin()
+      const user = s.users.find((row) => row.id === id) || fail('员工不存在', 404)
+      organizationFields(body)
+      if (
+        typeof body.displayName !== 'string' ||
+        !body.displayName.trim() ||
+        body.displayName.length > 100
+      ) {
+        fail('请填写员工姓名（1至100字）', 400)
+      }
+      Object.assign(user, {
+        display_name: requiredText(body.displayName, '员工姓名'),
+        department_id: body.departmentId ?? null,
+        position_id: body.positionId ?? null,
+        grade_id: body.gradeId ?? null,
+      })
+      log('USER_PROFILE', id, '更新员工部门岗位职级')
     } else if (path === '/admin/users' && method === 'GET') {
       admin()
-      result = s.users
+      result = s.users.map((user) => ({ ...user, manager_department_ids: user.scopes || [] }))
     } else if (path === '/admin/users' && method === 'POST') {
       admin()
       if (s.users.some((u) => u.username === body.username)) fail('账号已存在')
+      organizationFields(body)
       result = {
         ...body,
         id: next(s.users),
@@ -738,8 +1009,11 @@ export function createDemo(storage, now = () => Date.now()) {
       if (id === me.id) fail('不能修改自己的管理权限或停用本人')
       const u = s.users.find((u) => u.id === id) || fail('员工不存在')
       if (path.endsWith('active')) u.active = body.active
-      else if (body.enabled) u.roles = [...new Set([...u.roles, body.role])]
-      else u.roles = u.roles.filter((r) => r !== body.role)
+      else {
+        if (!['ADMIN', 'MANAGER', 'INSTRUCTOR'].includes(body.role)) fail('角色不合法', 400)
+        if (body.enabled) u.roles = [...new Set([...u.roles, body.role])]
+        else u.roles = u.roles.filter((r) => r !== body.role)
+      }
       log('USER_CHANGE', id, JSON.stringify(body))
     } else if (path === '/admin/audits') {
       admin()
@@ -766,13 +1040,16 @@ export function createDemo(storage, now = () => Date.now()) {
           completed_count: s.enrollments.filter((e) => e.course_id === c.id && e.completed).length,
         }))
     else if (path === '/dashboards/company' || path.startsWith('/dashboards/company/details')) {
-      admin()
-      const details = s.enrollments.map((e) => ({
-        ...s.users.find((u) => u.id === e.user_id),
-        ...course(e.course_id),
-        ...e,
-        id: e.user_id,
-      }))
+      managerOrAdmin()
+      const visibleUsers = s.users.filter((user) => canManageUser(me, user)).map((user) => user.id)
+      const details = s.enrollments
+        .filter((e) => visibleUsers.includes(e.user_id))
+        .map((e) => ({
+          ...s.users.find((u) => u.id === e.user_id),
+          ...course(e.course_id),
+          ...e,
+          id: e.user_id,
+        }))
       result = path.includes('details')
         ? details
         : {
@@ -782,14 +1059,21 @@ export function createDemo(storage, now = () => Date.now()) {
               learner_count: new Set(details.map((e) => e.user_id)).size,
             },
             details,
-            departments: s.departments.map((d) => ({
-              ...d,
-              assigned_tasks: details.filter((x) => x.department_id === d.id).length,
-              completed_tasks: details.filter((x) => x.department_id === d.id && x.completed)
-                .length,
-            })),
+            departments: s.departments
+              .filter((d) => isAdmin || (me.scopes || []).includes(d.id))
+              .map((d) => ({
+                ...d,
+                assigned_tasks: details.filter((x) => x.department_id === d.id).length,
+                completed_tasks: details.filter((x) => x.department_id === d.id && x.completed)
+                  .length,
+              })),
             plans: s.plans
               .filter((p) => p.status === 'PUBLISHED')
+              .map((p) => ({
+                ...p,
+                userIds: p.userIds.filter((user) => visibleUsers.includes(user)),
+              }))
+              .filter((p) => p.userIds.length)
               .map((p) => ({
                 ...p,
                 expected_people: p.userIds.length,

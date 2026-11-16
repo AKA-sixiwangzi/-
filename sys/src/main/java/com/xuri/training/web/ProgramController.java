@@ -44,8 +44,8 @@ public class ProgramController {
   }
 
   @PostMapping("/paths/{id}/assign")
-  public void assign(@PathVariable long id, @Valid @RequestBody Requests.Members r) {
-    service.assign(id, r.userIds());
+  public void assign(@PathVariable long id, @Valid @RequestBody Requests.RouteMembers r) {
+    service.assign(id, r.userIds(), r.departmentId(), r.positionId());
   }
 
   @PostMapping("/paths/{id}/certificate")

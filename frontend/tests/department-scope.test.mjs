@@ -81,16 +81,17 @@ test('旧浏览器数据缺少部门元数据仍按所有部门读取和分配',
   mutate((state) => {
     delete state.paths[0].all_departments
     delete state.paths[0].department_ids
-    state.users.find((user) => user.id === 8).department_id = null
+    state.paths[0].position_id = null
   })
   assert.equal(call('/paths')[0].all_departments, true)
   assert.deepEqual(call('/paths/1').path.department_ids, [])
-  call('/paths/1/assign', 'POST', { userIds: [8] })
+  call('/paths/1/assign', 'POST', { departmentId: 2, positionId: 2, userIds: [8] })
   assert.ok(call('/paths/1').path.users.includes(8))
 })
 
 test('指定部门分配先整体校验，混入越界员工不能部分分配或新增任务', () => {
-  const { call, db } = fixture()
+  const { call, db, mutate } = fixture()
+  mutate((state) => (state.users.find((user) => user.id === 1).position_id = 1))
   const route = call('/paths', 'POST', {
     title: '总经办路线',
     allDepartments: false,
@@ -98,7 +99,12 @@ test('指定部门分配先整体校验，混入越界员工不能部分分配�
   })
   publish(call, route)
   assert.throws(
-    () => call(`/paths/${route.id}/assign`, 'POST', { userIds: [1, 8] }),
+    () =>
+      call(`/paths/${route.id}/assign`, 'POST', {
+        departmentId: 1,
+        positionId: 1,
+        userIds: [1, 8],
+      }),
     /适用部门范围/,
   )
   assert.deepEqual(call(`/paths/${route.id}`).path.users, [])
@@ -106,7 +112,7 @@ test('指定部门分配先整体校验，混入越界员工不能部分分配�
     db.read().enrollments.some((row) => row.user_id === 1 && row.course_id === 1),
     false,
   )
-  call(`/paths/${route.id}/assign`, 'POST', { userIds: [1, 7, 7] })
+  call(`/paths/${route.id}/assign`, 'POST', { departmentId: 1, positionId: 1, userIds: [1, 7, 7] })
   assert.deepEqual(call(`/paths/${route.id}`).path.users, [1, 7])
   assert.equal(
     db.read().enrollments.filter((row) => row.user_id === 1 && row.course_id === 1).length,
@@ -114,8 +120,8 @@ test('指定部门分配先整体校验，混入越界员工不能部分分配�
   )
 })
 
-test('所有部门动态覆盖新增部门及未设置部门的员工', () => {
-  const { call, mutate } = fixture()
+test('所有部门动态覆盖新增部门，未设置部门员工可由管理员单独授权课程', () => {
+  const { call, mutate, db } = fixture()
   const route = call('/paths', 'POST', {
     title: '全员共同学习',
     allDepartments: true,
@@ -127,8 +133,22 @@ test('所有部门动态覆盖新增部门及未设置部门的员工', () => {
     state.users.find((user) => user.id === 7).department_id = 3
     state.users.find((user) => user.id === 8).department_id = null
   })
-  call(`/paths/${route.id}/assign`, 'POST', { userIds: [7, 8] })
-  assert.deepEqual(call(`/paths/${route.id}`).path.users, [7, 8])
+  assert.equal(
+    userMatchesDepartmentScope(
+      db.read().users.find((user) => user.id === 8),
+      route,
+    ),
+    true,
+  )
+  call(`/paths/${route.id}/assign`, 'POST', { departmentId: 3, positionId: 1, userIds: [7] })
+  assert.deepEqual(call(`/paths/${route.id}`).path.users, [7])
+  assert.throws(
+    () =>
+      call(`/paths/${route.id}/assign`, 'POST', { departmentId: 3, positionId: 2, userIds: [8] }),
+    { status: 400 },
+  )
+  call('/admin/course-grants', 'POST', { courseIds: [1], userIds: [8], reason: '未设部门个人授权' })
+  assert.ok(db.read().enrollments.some((row) => row.user_id === 8 && row.course_id === 1))
 })
 
 test('部门范围辅助函数正确区分所有、指定与空选，并保留原有管理权限', () => {

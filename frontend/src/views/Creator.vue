@@ -100,7 +100,7 @@ async function submit(c) {
     await api('/courses/' + c.id + '/submit-review', 'POST')
     dialog.value = false
     await reload()
-  }, '课程已提交审核，发布后原账号将获得讲师身份')
+  }, '课程已提交审核，发布后原账号将获得内训师身份')
 }
 </script>
 <template>
@@ -115,9 +115,9 @@ async function submit(c) {
   <div class="workspace-banner">
     <Icon name="ai" :size="28" />
     <div>
-      <h3>每一位员工，都可以成为培训讲师</h3>
+      <h3>每一位员工，都可以成为内训师</h3>
       <p>
-        创建课程 → 完善视频与资料 → 提交管理员审核 → 发布后兼任讲师，在同一账号查看课程学习情况。
+        创建课程 → 完善视频与资料 → 提交组织发展部审核 → 发布后兼任内训师，在同一账号查看课程学习情况。
       </p>
     </div>
   </div>

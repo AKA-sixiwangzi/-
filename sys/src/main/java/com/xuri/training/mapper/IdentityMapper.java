@@ -84,9 +84,15 @@ public interface IdentityMapper {
   @Select("SELECT * FROM job_position ORDER BY id")
   List<Map<String, Object>> positions();
 
-  @Insert("INSERT INTO job_position(name) VALUES(#{name})")
+  @Insert("INSERT INTO job_position(name,position_type) VALUES(#{name},#{position_type})")
   @Options(useGeneratedKeys = true, keyProperty = "id")
   void position(Map<String, Object> r);
+
+  @Update("UPDATE job_position SET name=#{name},position_type=#{position_type} WHERE id=#{id}")
+  int positionUpdate(Map<String, Object> r);
+
+  @Select("SELECT department_id FROM manager_department WHERE user_id=#{id} ORDER BY department_id")
+  List<Long> managerDepartmentIds(long id);
 
   @Select("SELECT * FROM job_grade ORDER BY sort_order,id")
   List<Map<String, Object>> grades();

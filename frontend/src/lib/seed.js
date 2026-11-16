@@ -43,6 +43,7 @@ export function seed() {
       username: 'wangyi',
       display_name: '王怡',
       department_id: 1,
+      position_id: 1,
       roles: ['EMPLOYEE'],
       active: true,
     },
@@ -51,7 +52,18 @@ export function seed() {
       username: 'liang',
       display_name: '李昂',
       department_id: 2,
+      position_id: 2,
       roles: ['EMPLOYEE'],
+      active: true,
+    },
+    {
+      id: 11,
+      username: 'zhao_manager',
+      display_name: '赵负责人',
+      department_id: 2,
+      position_id: 3,
+      roles: ['EMPLOYEE', 'MANAGER'],
+      scopes: [2],
       active: true,
     },
   ]
@@ -116,6 +128,16 @@ export function seed() {
       status: 'PENDING',
       tone: 'safety',
       badge: '员工分享',
+    },
+    {
+      id: 7,
+      title: '岗位质量复盘与持续改进',
+      category: '岗位进阶',
+      description: '从工作案例中发现改进点，形成个人行动计划；可由部门负责人申请为指定员工加课。',
+      owner_id: 8,
+      status: 'PUBLISHED',
+      tone: 'craft',
+      badge: '专项提升',
     },
   ]
   const lessons = courses.flatMap((c) =>
@@ -323,13 +345,16 @@ export function seed() {
     feedback: [],
     files: [],
     audit: [],
+    learningRequests: [],
+    learningRequestVersion: 1,
     departments: [
       { id: 1, name: '总经办' },
       { id: 2, name: '运营管理部' },
     ],
     positions: [
-      { id: 1, name: '综合管理岗' },
-      { id: 2, name: '培训讲师' },
+      { id: 1, name: '综合管理岗', position_type: 'GENERAL' },
+      { id: 2, name: '培训讲师', position_type: 'PROFESSIONAL' },
+      { id: 3, name: '部门经理', position_type: 'MANAGEMENT' },
     ],
     grades: [
       { id: 1, name: '初级' },
