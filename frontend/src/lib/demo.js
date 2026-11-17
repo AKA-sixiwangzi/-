@@ -1,6 +1,8 @@
 import { seed } from './seed.js'
 import { coverage, credit, sameChoices } from './rules.js'
 import { POSITION_TYPES, ROLE_LABELS } from './organization.js'
+import { createDemoContent } from './demo-content.js'
+import { createDemoPlans } from './demo-plans.js'
 import {
   normalizeDepartmentScope,
   departmentScopeView,
@@ -12,6 +14,20 @@ export function createDemo(storage, now = () => Date.now()) {
     try {
       const state = JSON.parse(storage.getItem(DEMO_KEY)) || seed()
       state.learningRequests ||= []
+      state.materialAcknowledgements ||= []
+      state.offlineSessions ||= []
+      state.offlineAttendance ||= []
+      for (const record of state.offlineAttendance) {
+        if (record.status === 'PENDING') record.status = 'REGISTERED'
+      }
+      state.planNotices ||= []
+      for (const plan of state.plans) {
+        plan.owner_id ??= state.users.find((user) => user.roles.includes('ADMIN'))?.id || 1
+        plan.responsible_user_id ??= plan.owner_id
+        plan.remind_before_hours ??= 72
+        plan.remind_every_hours ??= 24
+        plan.push_results ??= true
+      }
       state.positions.forEach((position) => (position.position_type ||= 'GENERAL'))
       if (!state.learningRequestVersion) {
         for (const [type, name] of [
@@ -296,7 +312,7 @@ export function createDemo(storage, now = () => Date.now()) {
           answer: '',
         }
         if (!a.answers.includes(ans)) a.answers.push(ans)
-        if (q.snapshot.type === 'TEXT' && ans.answer) {
+        if (q.snapshot.type === 'TEXT') {
           pending = true
           ans.score = null
         } else {
@@ -325,6 +341,35 @@ export function createDemo(storage, now = () => Date.now()) {
         })),
         answers: a.answers,
       }
+    }
+    const featureContext = {
+      s,
+      me,
+      isAdmin,
+      now,
+      iso,
+      next,
+      fail,
+      admin,
+      course,
+      manage,
+      enrolled,
+      progress,
+      done,
+      grant,
+      notice,
+      log,
+      idsFor,
+      requiredText,
+      userSummary,
+    }
+    const content = createDemoContent(featureContext)
+    const plans = createDemoPlans({ ...featureContext, content })
+    const feature = content.dispatch(path, method, body)
+    const handledFeature = feature.handled ? feature : plans.dispatch(path, method, body)
+    if (handledFeature.handled) {
+      save(s)
+      return structuredClone(handledFeature.result)
     }
     let result
     if (path === '/me')
@@ -474,7 +519,7 @@ export function createDemo(storage, now = () => Date.now()) {
         result = {
           course: c,
           lessons: s.lessons.filter((l) => l.course_id === id),
-          materials: s.materials.filter((m) => m.course_id === id),
+          materials: content.materialsFor(id),
         }
       }
     } else if (/^\/courses\/\d+\/lessons$/.test(path)) {
@@ -491,15 +536,6 @@ export function createDemo(storage, now = () => Date.now()) {
         time_threshold: body.timeThreshold,
       }
       s.lessons.push(result)
-    } else if (/^\/courses\/\d+\/materials$/.test(path)) {
-      manage(id)
-      result = { ...body, id: next(s.materials), course_id: id }
-      s.materials.push(result)
-    } else if (/^\/courses\/\d+\/submit-review$/.test(path)) {
-      const c = manage(id)
-      if (!['DRAFT', 'REJECTED'].includes(c.status)) fail('请勿重复提交')
-      if (!s.lessons.some((l) => l.course_id === id)) fail('请先增加视频章节')
-      c.status = 'PENDING'
     } else if (/^\/courses\/\d+\/archive$/.test(path)) {
       manage(id).status = 'ARCHIVED'
     } else if (/^\/courses\/\d+\/reviews$/.test(path)) {
@@ -601,7 +637,7 @@ export function createDemo(storage, now = () => Date.now()) {
           active: body.event !== 'END',
         })
         const p = progress(me.id, l.course_id)
-        enrolled(me.id, l.course_id).completed = p.length > 0 && p.every((p) => p.completed)
+        content.status(l.course_id, me.id, true)
         result = {
           acceptedSeconds: seconds,
           nextSeq: body.seq + 1,
@@ -613,17 +649,7 @@ export function createDemo(storage, now = () => Date.now()) {
       s.sessions.filter((t) => t.user_id === me.id).forEach((t) => (t.active = false))
     else if (path === '/plans' && method === 'GET')
       result = s.plans.filter((p) => isAdmin || p.userIds.includes(me.id))
-    else if (path === '/plans' && method === 'POST') {
-      admin()
-      result = {
-        ...body,
-        id: next(s.plans),
-        status: 'DRAFT',
-        start_at: body.startAt,
-        due_at: body.dueAt,
-      }
-      s.plans.push(result)
-    } else if (/^\/plans\/\d+\/publish$/.test(path)) {
+    else if (/^\/plans\/\d+\/publish$/.test(path)) {
       admin()
       const p = s.plans.find((p) => p.id === id) || fail('计划不存在', 404)
       p.status = 'PUBLISHED'
@@ -872,35 +898,7 @@ export function createDemo(storage, now = () => Date.now()) {
       p.published = true
     } else if (path === '/teaching/exams')
       result = s.exams.filter((e) => isAdmin || e.owner_id === me.id)
-    else if (path === '/teaching/grading')
-      result = s.attempts.filter(
-        (a) =>
-          a.status === 'PENDING_GRADE' &&
-          (isAdmin || s.exams.find((e) => e.id === a.exam_id).owner_id === me.id),
-      )
-    else if (/^\/teaching\/attempts\/[^/]+(?:\/grade)?$/.test(path)) {
-      const a = s.attempts.find((a) => a.id === path.split('/')[3]) || fail('考试不存在'),
-        e = s.exams.find((e) => e.id === a.exam_id),
-        p = s.papers.find((p) => p.id === e.paper_id)
-      if (!isAdmin && e.owner_id !== me.id) fail('无权阅卷', 403)
-      if (a.user_id === me.id) fail('不能批改自己的考试', 403)
-      if (path.endsWith('/grade')) {
-        const q = p.items.find((q) => q.id === body.questionId)
-        if (!q || q.snapshot.type !== 'TEXT' || body.score < 0 || body.score > q.score)
-          fail('评分不合法')
-        a.answers.find((x) => x.paper_question_id === body.questionId).score = body.score
-        if (a.answers.every((x) => x.score != null)) {
-          a.score = a.answers.reduce((sum, x) => sum + x.score, 0)
-          a.passed = a.score >= e.pass_score
-          a.status = 'GRADED'
-        }
-      } else
-        result = {
-          attempt: a,
-          questions: p.items.map((q) => ({ ...q, snapshot_json: JSON.stringify(q.snapshot) })),
-          answers: a.answers,
-        }
-    } else if (path === '/warnings')
+    else if (path === '/warnings')
       result = s.warnings.filter((w) => isAdmin || w.user_id === me.id).toReversed()
     else if (/^\/warnings\/\d+(?:\/actions|\/invalidate-session)?$/.test(path)) {
       const w = s.warnings.find((w) => w.id === id) || fail('预警不存在', 404)

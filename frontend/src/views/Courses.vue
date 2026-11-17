@@ -8,23 +8,24 @@ import LoadState from '../components/LoadState.vue'
 import Empty from '../components/Empty.vue'
 const rows = ref([]),
   progress = ref({}),
+  learning = ref({}),
   search = ref(''),
   category = ref('全部课程'),
   status = ref('all')
+function courseFormat(state) {
+  if (state?.videoTotal === undefined) return '培训课程'
+  return state.videoTotal ? (state.materials?.length ? '视频 + 资料' : '视频课程') : '资料课程'
+}
 const { loading, error, reload } = useLoad(async () => {
   rows.value = await api('/courses')
   await Promise.all(
     rows.value.map(async (c) => {
       try {
-        const p = await api('/courses/' + c.id + '/progress')
-        progress.value[c.id] =
-          (p.reduce((a, x) => a + x.covered_seconds, 0) /
-            Math.max(
-              1,
-              p.reduce((a, x) => a + x.duration_seconds, 0),
-            )) *
-          100
+        const state = await api('/courses/' + c.id + '/learning-status')
+        learning.value[c.id] = state
+        progress.value[c.id] = state.percent
       } catch {
+        learning.value[c.id] = { completed: false }
         progress.value[c.id] = 0
       }
     }),
@@ -38,8 +39,8 @@ const categories = computed(() => ['全部课程', ...new Set(rows.value.map((c)
         (category.value === '全部课程' || c.category === category.value) &&
         (status.value === 'all' ||
           (status.value === 'done'
-            ? (progress.value[c.id] || 0) >= 95
-            : (progress.value[c.id] || 0) < 95)),
+            ? learning.value[c.id]?.completed
+            : !learning.value[c.id]?.completed)),
     ),
   )
 </script>
@@ -82,10 +83,17 @@ const categories = computed(() => ['全部课程', ...new Set(rows.value.map((c)
       </div>
     </div>
     <div class="list-summary">
-      共 <b>{{ filtered.length }}</b> 门课程<span>学习进度按有效观看片段计算</span>
+      共 <b>{{ filtered.length }}</b> 门课程<span>学习进度综合视频有效完成与必读资料确认</span>
     </div>
     <div class="course-grid" v-if="filtered.length">
-      <CourseCard v-for="c in filtered" :key="c.id" :course="c" :progress="progress[c.id] || 0" />
+      <CourseCard
+        v-for="c in filtered"
+        :key="c.id"
+        :course="c"
+        :progress="progress[c.id] || 0"
+        :completed="!!learning[c.id]?.completed"
+        :format="courseFormat(learning[c.id])"
+      />
     </div>
     <Empty v-else title="没有符合条件的课程" text="试试其他关键词，或等待管理员分配新的课程。"
   /></LoadState>

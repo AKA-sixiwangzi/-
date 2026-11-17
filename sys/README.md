@@ -2,6 +2,16 @@
 
 传统 Spring + Spring MVC + MyBatis，SQL Server 数据库，WAR 部署到 Tomcat。未使用 Spring Boot。Vue 3前端位于仓库的 [frontend](../frontend/README.md)，离线体验位于 [demo](../demo/使用说明.txt)。
 
+## 2026-11-17 培训流程 V1.3
+
+新增员工自动账号、首次登录改密拦截、多格式课件与纯资料课程、必读确认、计划负责人及可配置站内提醒、简答题逐题评分评语、线下培训出勤与独立学时、讲师/负责人计划看板。岗位仍固定三条，四类角色代码不变；计划负责人是具体计划的授权关系，不新增全公司管理角色。
+
+现有数据库先确认 `02-add-path-departments.sql`、`03-position-types-learning-requests.sql`、`04-fixed-positions.sql` 已按顺序升级，再执行 [05-training-workflows.sql](database/05-training-workflows.sql)，最后部署新版 `training.war`。不需要新建数据库或重跑全量建表；旧账号与学习数据保留，旧资料默认选读，避免升级后新增完成门槛。全新数据库直接使用最新 `01-schema.sql`。
+
+定时任务在运行中的真实后端约每小时检查已发布计划，按配置发送站内到期/逾期提醒和结果摘要；同一提醒周期、同一结果状态去重，不发送邮件。页面可手动执行同一提醒检查。离线演示没有持续运行的后端定时器。
+
+详细业务规则与请求样例见 [培训流程V1.3](docs/培训流程V1.3.md) 和 [API说明](docs/API.md)。本次证据见 [验证说明](../demo/六项培训功能验证说明.md) 与 [测试结果](../demo/六项培训功能测试结果.json)；下方历史检查保留，不代表本次SQL迁移已实测。
+
 2026-10-27：为前端考试管理增加 `GET /api/teaching/exams`。讲师仅查询本人安排的考试，管理员可查询全部；使用旧版后端时请重新构建并部署。
 
 ## 已实现的后端范围

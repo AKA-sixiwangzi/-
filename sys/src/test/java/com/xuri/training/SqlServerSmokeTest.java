@@ -41,6 +41,9 @@ class SqlServerSmokeTest {
           LearningMapper.class,
           WarningMapper.class,
           ProgramMapper.class,
+          PlanOperationsMapper.class,
+          OfflineMapper.class,
+          LearningRequestMapper.class,
           ExamMapper.class,
           AiMapper.class,
           ResultMapper.class
@@ -53,7 +56,9 @@ class SqlServerSmokeTest {
       s.getMapper(LearningMapper.class).progressList(-1, -1);
       s.getMapper(WarningMapper.class).list(true, 0);
       s.getMapper(ProgramMapper.class).paths(true, 0);
-      s.getMapper(ProgramMapper.class).reminders();
+      s.getMapper(PlanOperationsMapper.class).publishedPlans();
+      s.getMapper(PlanOperationsMapper.class).materials(-1);
+      s.getMapper(OfflineMapper.class).list(true, false, -1);
       s.getMapper(ExamMapper.class).papers(0, true);
       s.getMapper(ExamMapper.class).pending(0, true);
       s.getMapper(ExamMapper.class).wrongAnswers(-1);

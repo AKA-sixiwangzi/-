@@ -120,6 +120,16 @@ public interface ExamMapper {
       @Param("grader") Long grader);
 
   @Update(
+      "UPDATE exam_answer SET score=#{score},grader_id=#{grader},grading_feedback=#{feedback}"
+          + " WHERE attempt_id=#{attempt} AND paper_question_id=#{question} AND score IS NULL")
+  int gradeEssay(
+      @Param("attempt") String attempt,
+      @Param("question") long question,
+      @Param("score") int score,
+      @Param("grader") long grader,
+      @Param("feedback") String feedback);
+
+  @Update(
       "UPDATE exam_attempt SET"
           + " status=#{status},score=#{score},passed=#{passed},submitted_at_ms=COALESCE(submitted_at_ms,#{submitted})"
           + " WHERE id=#{id}")
@@ -129,8 +139,10 @@ public interface ExamMapper {
   List<String> expired(long now);
 
   @Select(
-      "SELECT TOP(200) a.*,e.title FROM exam_attempt a JOIN exam e ON e.id=a.exam_id WHERE"
-          + " a.status='PENDING_GRADE' AND (e.owner_id=#{owner} OR #{admin}=1) ORDER BY"
+      "SELECT TOP(200) a.*,e.title FROM exam_attempt a JOIN exam e ON e.id=a.exam_id"
+          + " JOIN paper p ON p.id=e.paper_id WHERE a.status='PENDING_GRADE'"
+          + " AND a.user_id<>#{owner}"
+          + " AND (e.owner_id=#{owner} OR p.owner_id=#{owner} OR #{admin}=1) ORDER BY"
           + " a.started_at_ms")
   List<Map<String, Object>> pending(@Param("owner") long owner, @Param("admin") boolean admin);
 

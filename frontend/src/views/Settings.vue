@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import {
   session,
   safeStorage,
@@ -21,8 +21,10 @@ const router = useRouter(),
   reset = ref(false),
   oldPassword = ref(''),
   newPassword = ref(''),
+  confirmPassword = ref(''),
   health = ref(''),
   file = location.protocol === 'file:'
+const mustChange = computed(() => session.mode === 'api' && session.me?.user.must_change_password)
 async function apply() {
   await perform(async () => {
     if (!/^\/(?!\/)[\w/-]*$/.test(base.value))
@@ -42,8 +44,11 @@ async function apply() {
       <p>清楚区分本地体验与正式服务，按你的环境开始。</p>
     </div>
   </div>
-  <div class="cards-2">
-    <section class="panel">
+  <p v-if="mustChange" class="notice gold section-spacer">
+    欢迎使用旭能学院。请先将一次性初始密码改为你自己的密码，完成后重新登录即可开始学习。
+  </p>
+  <div :class="mustChange ? 'section-spacer' : 'cards-2'">
+    <section v-if="!mustChange" class="panel">
       <header class="panel-head">
         <h2>运行模式</h2>
         <Icon name="settings" :size="20" />
@@ -91,6 +96,7 @@ async function apply() {
         v-else
         @submit.prevent="
           perform(async () => {
+            if (newPassword !== confirmPassword) throw new Error('两次新密码输入不一致')
             await api('/auth/password', 'PUT', { oldPassword: oldPassword, newPassword })
             await logout()
             router.push('/login')
@@ -98,7 +104,7 @@ async function apply() {
         "
       >
         <label class="field"
-          ><span>原密码</span
+          ><span>{{ mustChange ? '一次性初始密码' : '原密码' }}</span
           ><input
             v-model="oldPassword"
             type="password"
@@ -114,11 +120,21 @@ async function apply() {
             maxlength="72"
             autocomplete="new-password"
           /><small>至少12字符，UTF-8编码不超过72字节。</small></label
-        ><button class="btn section-spacer">修改密码并重新登录</button>
+        ><label class="field section-spacer"
+          ><span>确认新密码</span
+          ><input
+            v-model="confirmPassword"
+            type="password"
+            required
+            minlength="12"
+            maxlength="72"
+            autocomplete="new-password"
+        /></label>
+        <button class="btn section-spacer" :disabled="ui.busy > 0">修改密码并重新登录</button>
       </form>
     </section>
   </div>
-  <section class="panel section-spacer">
+  <section v-if="!mustChange" class="panel section-spacer">
     <h2>在你的电脑上运行</h2>
     <p class="prose section-spacer">
       离线体验：双击“旭能学院-离线演示.html”，无需Node.js、Maven或数据库。<br />源码开发：在

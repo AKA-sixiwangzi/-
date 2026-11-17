@@ -1,5 +1,54 @@
 # 后端接口与Vue联调
 
+## 2026-11-17：六项培训流程扩展
+
+详细行为见 [培训流程V1.3](培训流程V1.3.md)。以下路径仍以 `/api` 为前缀；岗位固定三项、四类角色和原有权限代码不变。
+
+| 接口 | 用途与权限 |
+| --- | --- |
+| `POST /admin/employees` | 组织发展部新建员工并自动生成关联账号 |
+| `POST /courses/{id}/materials` | 课程作者/组织发展部添加文字、PDF、PPT/PPTX或HTTP(S)链接 |
+| `GET /courses/{id}/learning-status` | 获准访问课程的本人综合进度；包含必读确认与视频完成情况 |
+| `POST /materials/{id}/acknowledge` | 已分配且课程已发布的员工主动确认阅读，不生成视频时长 |
+| `PUT /plans/{id}/reminder-rules` | 组织发展部/计划负责人设置提醒；仅组织发展部能更换负责人 |
+| `POST /plans/{id}/remind` | 负责人/组织发展部手动检查到期提醒和结果推送，重复检查不会重复发同一通知 |
+| `GET /teaching/plans`、`GET /teaching/plans/{id}` | 负责人看整计划、内训师看本人课程，组织发展部看全部 |
+| `GET /offline-sessions`、`GET /offline-sessions/{id}` | 员工看本人参训，授课内训师/组织发展部看可管理场次 |
+| `GET /offline-sessions/options`、`POST /offline-sessions` | 内训师/组织发展部安排线下培训，人员与关联课程、计划范围独立校验 |
+| `PUT /offline-sessions/{id}/attendance` | 授课内训师/组织发展部登记或更正出勤与成绩，原因必填 |
+| `GET /me/offline-training` | 当前员工线下记录、已结束且出勤场次的独立学时 |
+| `GET /teaching/attempts/{id}`、`PUT /teaching/attempts/{id}/grade` | 考试或试卷负责人/组织发展部人工阅卷，禁止自评和重复评分 |
+
+新建员工不再要求填写账号密码：
+
+```json
+{"displayName":"新员工","departmentId":1,"positionId":1,"gradeId":1}
+```
+
+`positionId` 必须从组织接口取得。响应为 `{user:{...},account:{username,temporaryPassword,requiresPasswordChange:true}}`。临时明文只在本次返回，数据库只存密码散列；用户列表不返回初密。真实首次登录用户的 `user.must_change_password=true`，令牌仅可访问 `GET /me`、`PUT /auth/password`、`POST /auth/logout`；改密成功后需重新登录。旧 `POST /admin/users` 保留兼容，前端默认使用自动员工入口。
+
+资料请求示例：
+
+```json
+{"title":"安全培训PDF","materialType":"PDF","assetId":"上传接口返回的文件UUID","content":"","required":true}
+```
+
+`materialType` 为 `TEXT/PDF/PPT/LINK`，LINK使用 `externalUrl`，TEXT可输入正文或上传TXT。省略类型按附件MIME推断，省略`required`按旧版选读处理；前端新增资料默认必读。PPT/PPTX支持上传与下载，PDF可按浏览器能力预览，不提供PPT在线转换。非空课程的全部视频达标且全部必读确认才完成；仅打开附件或网页不算完成。综合状态返回 `{completed,videoCompleted,videoTotal,materialCompleted,materialTotal,materials,percent}`，资料计数仅包括必读项，`materials`包含全部资料与当前用户的确认状态。
+
+`POST /plans` 保留原 `title/startAt/dueAt/courseIds/userIds/examIds`，新增 `responsibleUserId`、`remindBeforeHours`、`remindEveryHours`、`pushResults`，默认当前创建人、72小时、24小时、开启结果推送。提醒规则PUT提交后四项；提前时间0至8760小时，重复间隔1至720小时。真实服务每小时检查一次，按周期或结果摘要去重，使用站内消息，不发送邮件或外部聊天消息。
+
+线下安排体为 `{title,planId?,courseId?,instructorId,startAt,endAt,location,userIds}`，时间需带时区，地点不超过200字符，单场不超过24小时。登记体例如：
+
+```json
+{"records":[{"userId":7,"status":"PRESENT","score":92,"note":"完成实操"}],"reason":"已核对现场签到表"}
+```
+
+状态为`PRESENT/ABSENT/EXCUSED`，可选成绩0至100；培训开始前不能登记，只有结束且出勤才计线下学时，重复登记不累加学时。更正保存审计与通知，不修改视频学习数据。详情返回 `{session,attendance,can_manage}`，个人接口返回 `{records,credited_hours,attended_sessions}`。
+
+简答题交卷后进入`PENDING_GRADE`，总分为空。阅卷详情含考生答案、参考答案、满分、已得分与评语，只对有权限的阅卷人开放且不得用于未交卷答卷。逐题评分体 `{questionId,score,feedback?}`，评语最多1000字；未作答的简答题也需人工确认0分。全部简答题评分后才汇总总分、计算通过结果并通知员工。已评题重复提交409，越权或自评403。
+
+已有数据库先完成02、03、04，再执行 `05-training-workflows.sql` 后更新WAR；尚未执行真实SQL Server迁移的环境不能将自动测试通过视作完成实库联调。
+
 ## 2026-11-16：固定三岗位、路线分配与加课审批
 
 权限代码沿用 `EMPLOYEE` / `INSTRUCTOR` / `MANAGER` / `ADMIN`，界面名称分别为普通员工、内训师、部门负责人、组织发展部。同一账号可兼任，普通员工身份保留。部门负责人必须配置 `manager-scope`，所属部门不等于授权部门。

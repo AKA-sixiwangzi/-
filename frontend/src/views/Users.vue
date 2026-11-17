@@ -17,7 +17,8 @@ const rows = ref([]),
   enabled = ref(true),
   department = ref(null),
   orgType = ref('departments'),
-  orgName = ref('')
+  orgName = ref(''),
+  credentials = ref(null)
 const { loading, error, reload } = useLoad(
   async () =>
     ([rows.value, org.value] = await Promise.all([api('/admin/users'), api('/organization')])),
@@ -55,8 +56,6 @@ function openUserDialog(user, type) {
 function create() {
   selected.value = null
   form.value = {
-    username: '',
-    password: '',
     displayName: '',
     departmentId: null,
     positionId: null,
@@ -83,12 +82,13 @@ async function revokeDepartment(id) {
 }
 async function submit() {
   await perform(async () => {
-    if (dialog.value === 'create') await api('/admin/users', 'POST', form.value)
-    else if (dialog.value === 'profile') {
+    if (dialog.value === 'create') {
+      const created = await api('/admin/employees', 'POST', form.value)
+      credentials.value = { ...created.account, displayName: form.value.displayName }
+    } else if (dialog.value === 'profile') {
       await api('/admin/users/' + selected.value.id, 'PUT', form.value)
       if (selected.value.id === session.me?.user.id) await loadMe()
-    }
-    else if (dialog.value === 'role')
+    } else if (dialog.value === 'role')
       await api('/admin/users/' + selected.value.id + '/roles', 'PUT', {
         role: role.value,
         enabled: enabled.value,
@@ -135,77 +135,85 @@ async function submit() {
     </div>
   </div>
   <LoadState :loading="loading" :error="error" @retry="reload">
-      <div class="table-wrap section-spacer" v-if="filtered.length">
-        <table>
-          <thead>
-            <tr>
-              <th>员工</th>
-              <th>账号</th>
-              <th>部门</th>
-              <th>岗位 / 职级</th>
-              <th>角色</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="user in filtered" :key="user.id">
-              <td>
-                <strong>{{ user.display_name }}</strong>
-                <small class="muted"> #{{ user.id }}</small>
-              </td>
-              <td>{{ user.username }}</td>
-              <td>
-                {{ org.departments.find((item) => item.id === user.department_id)?.name || '未设置' }}
-              </td>
-              <td>
-                {{ positionLabel(org.positions.find((item) => item.id === user.position_id)) }}
-                <small class="muted job-grade">
-                  {{ org.grades.find((item) => item.id === user.grade_id)?.name || '职级未设置' }}
-                </small>
-              </td>
-              <td>
-                <div class="role-tags">
-                  <span v-for="item in userRoles(user)" :key="item" class="tag">{{
-                    ROLE_LABELS[item] || item
-                  }}</span>
-                </div>
-              </td>
-              <td>
-                <span class="status" :class="user.active ? 'completed' : 'archived'">{{
-                  user.active ? '启用' : '停用'
+    <div class="table-wrap section-spacer" v-if="filtered.length">
+      <table>
+        <thead>
+          <tr>
+            <th>员工</th>
+            <th>账号</th>
+            <th>部门</th>
+            <th>岗位 / 职级</th>
+            <th>角色</th>
+            <th>状态</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="user in filtered" :key="user.id">
+            <td>
+              <strong>{{ user.display_name }}</strong>
+              <small class="muted"> #{{ user.id }}</small>
+            </td>
+            <td>{{ user.username }}</td>
+            <td>
+              {{ org.departments.find((item) => item.id === user.department_id)?.name || '未设置' }}
+            </td>
+            <td>
+              {{ positionLabel(org.positions.find((item) => item.id === user.position_id)) }}
+              <small class="muted job-grade">
+                {{ org.grades.find((item) => item.id === user.grade_id)?.name || '职级未设置' }}
+              </small>
+            </td>
+            <td>
+              <div class="role-tags">
+                <span v-for="item in userRoles(user)" :key="item" class="tag">{{
+                  ROLE_LABELS[item] || item
                 }}</span>
-              </td>
-              <td>
-                <div class="actions user-actions">
-                  <button class="text-link" @click="openUserDialog(user, 'profile')">编辑资料</button>
-                  <button
-                    class="text-link"
-                    :disabled="user.id === session.me?.user.id"
-                    @click="openUserDialog(user, 'role')"
-                  >设置角色</button>
-                  <button
-                    class="text-link"
-                    :disabled="!user.roles?.includes('MANAGER')"
-                    @click="openUserDialog(user, 'scope')"
-                  >部门范围</button>
-                  <button
-                    class="text-link"
-                    :disabled="user.id === session.me?.user.id"
-                    @click="
-                      perform(async () => {
-                        await api('/admin/users/' + user.id + '/active', 'PUT', { active: !user.active })
-                        await reload()
-                      }, '账号状态已更新')
-                    "
-                  >{{ user.active ? '停用' : '启用' }}</button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <Empty v-else title="没有符合条件的员工" />
+              </div>
+            </td>
+            <td>
+              <span class="status" :class="user.active ? 'completed' : 'archived'">{{
+                user.active ? '启用' : '停用'
+              }}</span>
+            </td>
+            <td>
+              <div class="actions user-actions">
+                <button class="text-link" @click="openUserDialog(user, 'profile')">编辑资料</button>
+                <button
+                  class="text-link"
+                  :disabled="user.id === session.me?.user.id"
+                  @click="openUserDialog(user, 'role')"
+                >
+                  设置角色
+                </button>
+                <button
+                  class="text-link"
+                  :disabled="!user.roles?.includes('MANAGER')"
+                  @click="openUserDialog(user, 'scope')"
+                >
+                  部门范围
+                </button>
+                <button
+                  class="text-link"
+                  :disabled="user.id === session.me?.user.id"
+                  @click="
+                    perform(async () => {
+                      await api('/admin/users/' + user.id + '/active', 'PUT', {
+                        active: !user.active,
+                      })
+                      await reload()
+                    }, '账号状态已更新')
+                  "
+                >
+                  {{ user.active ? '停用' : '启用' }}
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <Empty v-else title="没有符合条件的员工" />
   </LoadState>
   <Modal v-if="dialog" :title="title" @close="dialog = ''">
     <form @submit.prevent="submit">
@@ -215,53 +223,44 @@ async function submit() {
             <span>员工姓名</span>
             <input v-model="form.displayName" required maxlength="100" />
           </label>
-          <template v-if="dialog === 'create'">
-            <label class="field">
-              <span>登录账号</span>
-              <input
-                v-model="form.username"
-                required
-                pattern="[A-Za-z0-9_.@\-]{3,80}"
-                placeholder="字母、数字等，至少3位"
-              />
-            </label>
-            <label class="field span-2">
-              <span>初始密码</span>
-              <input
-                v-model="form.password"
-                type="password"
-                required
-                minlength="12"
-                maxlength="72"
-                autocomplete="new-password"
-              />
-            </label>
-          </template>
+          <p v-if="dialog === 'create'" class="notice span-2">
+            保存员工后自动生成关联账号和一次性初始密码，无需另外建账号。首次登录须修改密码。
+          </p>
           <label class="field">
             <span>部门</span>
             <select v-model="form.departmentId">
               <option :value="null">暂不设置</option>
-              <option v-for="item in org.departments" :key="item.id" :value="item.id">{{ item.name }}</option>
+              <option v-for="item in org.departments" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
             </select>
           </label>
           <label class="field">
             <span>岗位</span>
             <select v-model="form.positionId">
               <option :value="null">暂不设置</option>
-              <option v-for="item in org.positions" :key="item.id" :value="item.id">{{ item.name }}</option>
+              <option v-for="item in org.positions" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
             </select>
           </label>
           <label class="field">
             <span>职级</span>
             <select v-model="form.gradeId">
               <option :value="null">暂不设置</option>
-              <option v-for="item in org.grades" :key="item.id" :value="item.id">{{ item.name }}</option>
+              <option v-for="item in org.grades" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
             </select>
           </label>
         </template>
         <template v-else-if="dialog === 'role'">
           <p class="notice span-2">
-            正在设置 {{ selected.display_name }} 的角色。普通员工身份始终保留，可以兼任其他角色。变更后需要重新登录。
+            正在设置
+            {{
+              selected.display_name
+            }}
+            的角色。普通员工身份始终保留，可以兼任其他角色。变更后需要重新登录。
           </p>
           <label class="field">
             <span>角色</span>
@@ -282,7 +281,11 @@ async function submit() {
         </template>
         <template v-else-if="dialog === 'scope'">
           <p class="notice span-2">
-            为 {{ selected.display_name }} 添加可管理的部门。此范围用于部门看板和加课需求，不改变其本人所属部门。
+            为
+            {{
+              selected.display_name
+            }}
+            添加可管理的部门。此范围用于部门看板和加课需求，不改变其本人所属部门。
           </p>
           <div class="field span-2">
             <span>当前授权部门</span>
@@ -295,7 +298,9 @@ async function submit() {
                   :disabled="ui.busy > 0"
                   :aria-label="'撤销' + item.name + '管理范围'"
                   @click="revokeDepartment(item.id)"
-                >撤销</button>
+                >
+                  撤销
+                </button>
               </div>
             </div>
             <p v-else class="muted position-empty">尚未授权管理部门。</p>
@@ -304,7 +309,9 @@ async function submit() {
             <span>授权管理部门</span>
             <select v-model="department" required>
               <option :value="null" disabled>选择部门</option>
-              <option v-for="item in org.departments" :key="item.id" :value="item.id">{{ item.name }}</option>
+              <option v-for="item in org.departments" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
             </select>
           </label>
         </template>
@@ -329,6 +336,35 @@ async function submit() {
       </footer>
     </form>
   </Modal>
+  <Modal v-if="credentials && !dialog" title="员工与账号已创建" @close="credentials = null">
+    <p class="notice">
+      {{
+        credentials.displayName
+      }}的账号已关联。初始密码仅在本次显示，请记录并交给员工本人；首次登录必须改密。
+    </p>
+    <label class="field section-spacer"
+      ><span>登录账号</span
+      ><input
+        readonly
+        :value="credentials.username"
+        autocomplete="off"
+        @focus="$event.target.select()"
+    /></label>
+    <label class="field section-spacer"
+      ><span>一次性初始密码</span
+      ><input
+        readonly
+        :value="credentials.temporaryPassword"
+        autocomplete="off"
+        @focus="$event.target.select()"
+    /></label>
+    <p v-if="session.mode === 'demo'" class="caption section-spacer">
+      当前为演示账号，不用于公司正式登录。
+    </p>
+    <footer class="form-actions">
+      <button class="btn" @click="credentials = null">已记录，关闭</button>
+    </footer>
+  </Modal>
 </template>
 <style scoped>
 .role-tags {
@@ -346,8 +382,16 @@ async function submit() {
   flex-wrap: wrap;
   max-width: 190px;
 }
-.position-empty { margin-top: 16px; font-size: 12px; line-height: 1.8; }
-.managed-departments { display: flex; flex-wrap: wrap; gap: 8px; }
+.position-empty {
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.managed-departments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .managed-department {
   display: flex;
   align-items: center;

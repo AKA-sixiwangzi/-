@@ -183,11 +183,8 @@ public class LearningService {
             "done",
             covered + 1e-6 >= duration * num(l, "coverage_threshold")
                 && seconds + 1e-6 >= duration * num(l, "time_threshold")));
-    List<Map<String, Object>> progress = db.progressList(user, id(l, "course_id"));
-    boolean done =
-        !progress.isEmpty()
-            && progress.stream().allMatch(r -> ((Number) r.get("completed")).intValue() == 1);
-    courses.completion(user, id(l, "course_id"), done);
+    // Course completion includes required documents, independently of effective video seconds.
+    access.recalculateCompletion(user, id(l, "course_id"));
   }
 
   @Transactional

@@ -77,14 +77,37 @@ public interface CourseMapper {
   @Options(useGeneratedKeys = true, keyProperty = "id")
   void lessonCreate(Map<String, Object> l);
 
-  @Select("SELECT * FROM course_material WHERE course_id=#{id} ORDER BY id")
+  @Select(
+      "SELECT m.*,f.content_type,f.name AS file_name FROM course_material m"
+          + " LEFT JOIN file_asset f ON f.id=m.asset_id WHERE m.course_id=#{id} ORDER BY m.id")
   List<Map<String, Object>> materials(long id);
 
+  @Select("SELECT * FROM course_material WHERE id=#{id}")
+  Map<String, Object> material(long id);
+
   @Insert(
-      "INSERT INTO course_material(course_id,title,content,asset_id)"
-          + " VALUES(#{course_id},#{title},#{content},#{asset_id})")
+      "INSERT INTO course_material(course_id,title,content,asset_id,material_type,external_url,required)"
+          + " VALUES(#{course_id},#{title},#{content},#{asset_id},#{material_type},#{external_url},#{required})")
   @Options(useGeneratedKeys = true, keyProperty = "id")
   void materialCreate(Map<String, Object> m);
+
+  @Select(
+      "SELECT l.id,COALESCE(w.completed,0) AS completed FROM lesson l LEFT JOIN watch_progress w"
+          + " ON w.lesson_id=l.id AND w.user_id=#{user} WHERE l.course_id=#{course} ORDER BY l.sort_order")
+  List<Map<String, Object>> learningVideos(@Param("user") long user, @Param("course") long course);
+
+  @Select(
+      "SELECT m.*,f.content_type,f.name AS file_name,a.acknowledged_at,"
+          + " CAST(CASE WHEN a.user_id IS NULL THEN 0 ELSE 1 END AS bit) AS acknowledged"
+          + " FROM course_material m LEFT JOIN file_asset f ON f.id=m.asset_id"
+          + " LEFT JOIN material_ack a ON a.material_id=m.id AND a.user_id=#{user}"
+          + " WHERE m.course_id=#{course} ORDER BY m.id")
+  List<Map<String, Object>> learningMaterials(@Param("user") long user, @Param("course") long course);
+
+  @Insert(
+      "IF NOT EXISTS(SELECT 1 FROM material_ack WHERE user_id=#{user} AND material_id=#{material})"
+          + " INSERT INTO material_ack(user_id,material_id) VALUES(#{user},#{material})")
+  void acknowledge(@Param("user") long user, @Param("material") long material);
 
   @Select("SELECT COUNT(*) FROM course_enrollment WHERE user_id=#{user} AND course_id=#{course}")
   int enrolled(@Param("user") long user, @Param("course") long course);

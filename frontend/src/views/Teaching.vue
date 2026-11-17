@@ -32,7 +32,11 @@ async function open(c) {
       <h1>授课工作台</h1>
       <p>关注每一位学员的进展，让好内容带来真实成长。</p>
     </div>
-    <RouterLink to="/creation" class="btn"><Icon name="plus" :size="16" />创作课程</RouterLink>
+    <div class="btn-row">
+      <RouterLink to="/teaching/plans" class="btn white"
+        ><Icon name="calendar" :size="16" />计划跟进看板</RouterLink
+      ><RouterLink to="/creation" class="btn"><Icon name="plus" :size="16" />创作课程</RouterLink>
+    </div>
   </div>
   <div class="notice">
     此工作区只展示归属于你的课程及相关学习记录。你的个人学习情况仍在“学习工作台”。

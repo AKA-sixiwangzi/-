@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, onBeforeRouteLeave } from 'vue-router'
-import { api, media, session, perform, toast } from '../lib/api.js'
+import { api, media, resource, session, perform, toast, ui } from '../lib/api.js'
 import { useLoad } from '../lib/load.js'
 import Icon from '../components/Icon.vue'
 import LoadState from '../components/LoadState.vue'
@@ -10,6 +10,9 @@ const route = useRoute(),
   id = Number(route.params.id),
   detail = ref(null),
   progress = ref([]),
+  learning = ref(null),
+  materialPreviews = ref({}),
+  materialErrors = ref({}),
   selected = ref(null),
   video = ref(),
   src = ref(''),
@@ -39,21 +42,47 @@ const total = computed(
   ),
   covered = computed(() => progress.value.reduce((a, l) => a + l.covered_seconds, 0)),
   effective = computed(() => progress.value.reduce((a, l) => a + l.effective_seconds, 0)),
-  percent = computed(() => Math.min(100, Math.round((covered.value / total.value) * 100)))
+  videoPercent = computed(() => Math.min(100, Math.round((covered.value / total.value) * 100))),
+  percent = computed(() => Math.min(100, Math.round(learning.value?.percent || 0))),
+  materials = computed(
+    () =>
+      detail.value?.materials.map((m) => ({
+        ...m,
+        ...learning.value?.materials?.find((item) => item.id === m.id),
+      })) || [],
+  ),
+  requiredCount = computed(() => materials.value.filter((m) => m.required).length)
 const { loading, error, reload } = useLoad(async () => {
   detail.value = await api('/courses/' + id)
+  progress.value = []
+  learning.value = null
+  preview.value = route.query.preview === '1'
+  src.value = ''
+  networkError.value = ''
+  materialPreviews.value = {}
+  materialErrors.value = {}
   try {
     progress.value = await api('/courses/' + id + '/progress')
   } catch (e) {
-    if (e.status === 403) preview.value = true
+    if (e.status === 403 || e.status === 409) preview.value = true
     else throw e
   }
+  learning.value = await api('/courses/' + id + '/learning-status')
   work.value = await api('/courses/' + id + '/coursework')
   selected.value =
     detail.value.lessons.find((l) => !progress.value.find((p) => p.id === l.id)?.completed) ||
     detail.value.lessons[0]
-  if (selected.value) src.value = await media(selected.value.video_asset_id)
+  if (selected.value) {
+    try {
+      src.value = await media(selected.value.video_asset_id)
+    } catch (e) {
+      networkError.value = e.message
+    }
+  }
 })
+async function refreshLearningStatus() {
+  learning.value = await api('/courses/' + id + '/learning-status')
+}
 async function flush() {
   if (running || !outbox.length || !sid) return
   running = true
@@ -64,7 +93,21 @@ async function flush() {
       seq++
       outbox.shift()
       networkError.value = ''
-      if (r?.lessons) progress.value = r.lessons
+      if (r?.lessons) {
+        const completed = progress.value
+          .filter((p) => p.completed)
+          .map((p) => p.id)
+          .join(',')
+        progress.value = r.lessons
+        if (
+          completed !==
+          r.lessons
+            .filter((p) => p.completed)
+            .map((p) => p.id)
+            .join(',')
+        )
+          void refreshLearningStatus().catch((e) => toast(e.message, 'error'))
+      }
     } catch (e) {
       networkError.value = e.message
       video.value?.pause()
@@ -147,14 +190,24 @@ async function choose(l) {
   await perform(async () => {
     await closeSession()
     selected.value = l
-    src.value = await media(l.video_asset_id)
+    src.value = ''
     networkError.value = ''
     playing.value = false
+    try {
+      src.value = await media(l.video_asset_id)
+    } catch (e) {
+      networkError.value = e.message
+    }
   })
 }
 async function retry() {
   if (!sid) {
-    networkError.value = ''
+    try {
+      if (selected.value) src.value = await media(selected.value.video_asset_id)
+      networkError.value = ''
+    } catch (e) {
+      networkError.value = e.message
+    }
     return
   }
   await flush()
@@ -166,18 +219,53 @@ function visibility() {
     playing.value = false
   }
 }
-async function openAsset(asset) {
-  const popup = window.open('about:blank', '_blank')
+function materialLabel(m) {
+  return (
+    { TEXT: '文字 / TXT', PDF: 'PDF 文档', PPT: 'PPT / PPTX 课件', LINK: '网页链接' }[
+      m.material_type || 'TEXT'
+    ] || '学习资料'
+  )
+}
+function externalLink(value) {
   try {
-    const url = await media(asset)
+    const url = new URL(value)
+    return ['http:', 'https:'].includes(url.protocol) &&
+      url.hostname &&
+      !url.username &&
+      !url.password
+      ? url.href
+      : null
+  } catch {
+    return null
+  }
+}
+async function previewPdf(m) {
+  materialErrors.value[m.id] = ''
+  try {
+    materialPreviews.value[m.id] = await resource(m.asset_id)
+  } catch (e) {
+    materialErrors.value[m.id] = e.message
+  }
+}
+async function openAsset(m) {
+  const popup = window.open('about:blank', '_blank')
+  if (popup) popup.opener = null
+  try {
+    const url = await resource(m.asset_id)
     if (popup) {
-      popup.opener = null
       popup.location.href = url
-    }
+    } else throw new Error('浏览器阻止了新窗口，请允许本站弹窗后重试。')
   } catch (e) {
     popup?.close()
+    materialErrors.value[m.id] = e.message
     toast(e.message, 'error')
   }
+}
+async function acknowledge(m) {
+  if (preview.value || m.acknowledged) return
+  await perform(async () => {
+    learning.value = await api('/materials/' + m.id + '/acknowledge', 'POST')
+  }, '已确认完成阅读')
 }
 async function ask() {
   if (!question.value.trim()) return
@@ -246,19 +334,25 @@ onUnmounted(() => {
         <div>
           <p class="eyebrow">LEARN WITH PURPOSE</p>
           <h1>{{ detail.course.title }}</h1>
-          <p>{{ detail.course.category }} · {{ detail.lessons.length }} 个章节</p>
+          <p>
+            {{ detail.course.category }} ·
+            {{ detail.lessons.length ? detail.lessons.length + ' 个视频章节 · ' : ''
+            }}{{ detail.materials.length }} 份课程资料
+          </p>
         </div>
-        <span class="tag">{{ preview ? '讲师内容预览' : '岗位学习' }}</span>
+        <span class="tag">{{
+          preview ? '内容预览 · 不记录学习' : learning?.completed ? '课程已完成' : '岗位学习'
+        }}</span>
       </div>
       <div v-if="session.mode === 'demo'" class="notice gold">
-        演示视频每章30秒，使用浏览器本地记录演示有效播放；正式模式由后端校验，演示结果不计入正式培训。
+        演示记录仅保存在当前浏览器。视频按有效播放记录，资料需主动确认阅读；临时上传附件刷新后需重新上传，演示结果不计入正式培训。
       </div>
       <div v-if="networkError" class="notice error">
         {{ networkError }} <button class="text-link" @click="retry">重试同步</button>
       </div>
       <div class="player-layout">
         <section>
-          <div class="video-frame">
+          <div v-if="detail.lessons.length" class="video-frame">
             <video
               v-if="src"
               ref="video"
@@ -282,9 +376,25 @@ onUnmounted(() => {
                 }
               "
               @error="networkError = '视频加载失败，请检查资源或重新获取播放凭证。'"
-            /><Empty v-else title="暂无视频资源" />
+            /><Empty v-else title="视频资源暂不可用" text="请联系课程创作者检查视频文件。" />
           </div>
-          <div class="player-status">
+          <div v-else class="document-hero">
+            <div class="document-hero-icon"><Icon name="file" :size="34" /></div>
+            <span class="eyebrow">READ · UNDERSTAND · APPLY</span>
+            <h2>从这份资料开始学习</h2>
+            <p>
+              本课程包含 {{ detail.materials.length }} 份学习资料，其中
+              {{ requiredCount }} 份必读。阅读资料后，主动确认完成。
+            </p>
+            <span class="tag">{{
+              preview
+                ? '当前为只读预览'
+                : learning?.completed
+                  ? '已完成全部必读资料'
+                  : '资料阅读课程'
+            }}</span>
+          </div>
+          <div v-if="detail.lessons.length" class="player-status">
             <span
               ><i :class="{ playing }" />{{
                 preview
@@ -295,26 +405,96 @@ onUnmounted(() => {
                       ? '正在记录有效播放'
                       : '播放视频以记录有效学习'
               }}</span
-            ><span>已覆盖 {{ percent }}% · 有效 {{ Math.floor(effective) }} 秒</span>
+            ><span>视频已覆盖 {{ videoPercent }}% · 有效 {{ Math.floor(effective) }} 秒</span>
           </div>
           <div class="panel section-spacer">
             <div class="tabs page-tabs">
               <button :class="{ active: tab === 'materials' }" @click="tab = 'materials'">
-                课程讲义</button
+                课程资料</button
               ><button :class="{ active: tab === 'work' }" @click="tab = 'work'">课后作业</button
               ><button :class="{ active: tab === 'feedback' }" @click="tab = 'feedback'">
                 学习评价
               </button>
             </div>
             <template v-if="tab === 'materials'"
-              ><article v-for="m in detail.materials" :key="m.id" class="material-block">
-                <h3><Icon name="file" :size="17" />{{ m.title }}</h3>
-                <p class="prose">{{ m.content }}</p>
-                <button v-if="m.asset_id" class="text-link" @click="openAsset(m.asset_id)">
-                  查看附件<Icon name="external" :size="14" />
-                </button>
+              ><p class="notice material-notice">
+                {{
+                  preview
+                    ? '当前为内容预览，不记录个人阅读完成状态。'
+                    : '请认真阅读后点击“确认已完成阅读”。仅打开、预览或下载资料不会自动计入进度；必读资料全部确认后才满足课程资料要求。'
+                }}
+              </p>
+              <article v-for="m in materials" :key="m.id" class="material-block">
+                <header class="material-heading">
+                  <h3>
+                    <Icon :name="m.material_type === 'LINK' ? 'external' : 'file'" :size="17" />{{
+                      m.title
+                    }}
+                  </h3>
+                  <span class="tag" :class="{ 'material-done': m.acknowledged && !preview }">{{
+                    m.acknowledged && !preview ? '已确认阅读' : m.required ? '必读' : '选读'
+                  }}</span>
+                </header>
+                <p class="caption">
+                  {{ materialLabel(m) }}{{ m.file_name ? ' · ' + m.file_name : '' }}
+                </p>
+                <p v-if="m.content" class="prose">{{ m.content }}</p>
+                <template v-if="m.material_type === 'LINK'">
+                  <a
+                    v-if="externalLink(m.external_url)"
+                    class="text-link resource-action"
+                    :href="externalLink(m.external_url)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >打开学习网页<Icon name="external" :size="14"
+                  /></a>
+                  <p v-else class="caption danger-text">网页地址无效，请联系课程创作者。</p>
+                </template>
+                <div v-else-if="m.asset_id" class="resource-actions">
+                  <button v-if="m.material_type === 'PDF'" class="text-link" @click="previewPdf(m)">
+                    <Icon name="file" :size="14" />{{
+                      materialPreviews[m.id] ? '重新获取 PDF 预览' : '预览 PDF'
+                    }}
+                  </button>
+                  <button class="text-link" @click="openAsset(m)">
+                    {{ m.material_type === 'PPT' ? '下载 / 打开课件' : '在新窗口打开附件'
+                    }}<Icon name="external" :size="14" />
+                  </button>
+                </div>
+                <p v-if="m.material_type === 'PPT'" class="caption section-spacer">
+                  PPT / PPTX 请下载后使用 Office 或兼容软件打开；此页面不提供原生翻页预览。
+                </p>
+                <p v-if="materialErrors[m.id]" class="notice error section-spacer" role="alert">
+                  {{ materialErrors[m.id] }}
+                </p>
+                <iframe
+                  v-if="m.material_type === 'PDF' && materialPreviews[m.id]"
+                  :src="materialPreviews[m.id]"
+                  :title="m.title + ' PDF 预览'"
+                  class="pdf-preview"
+                  loading="lazy"
+                />
+                <p
+                  v-if="m.material_type === 'PDF' && materialPreviews[m.id]"
+                  class="caption section-spacer"
+                >
+                  若浏览器无法显示 PDF，请在新窗口打开附件。
+                </p>
+                <div class="material-confirm">
+                  <button
+                    v-if="!preview"
+                    class="btn outline"
+                    :disabled="ui.busy > 0 || !!m.acknowledged"
+                    @click="acknowledge(m)"
+                  >
+                    <Icon :name="m.acknowledged ? 'check' : 'book'" :size="15" />{{
+                      m.acknowledged ? '已确认完成阅读' : '确认已完成阅读'
+                    }}
+                  </button>
+                  <span v-else class="caption">内容预览不提供阅读确认</span>
+                </div>
               </article>
-              <Empty v-if="!detail.materials.length" title="讲师尚未上传文字资料" /></template
+              <Empty v-if="!detail.materials.length" title="讲师尚未添加课程资料" /></template
             ><template v-if="tab === 'work'"
               ><article class="material-block" v-for="a in work.assignments" :key="a.id">
                 <h3>{{ a.title }}</h3>
@@ -325,6 +505,7 @@ onUnmounted(() => {
                   placeholder="写下你的实践过程或作业内容"
                 /><button
                   class="btn section-spacer"
+                  :disabled="preview || ui.busy > 0"
                   @click="
                     perform(async () => {
                       await api('/assignments/' + a.id + '/submissions', 'POST', {
@@ -374,7 +555,7 @@ onUnmounted(() => {
                   maxlength="2000"
                 />
               </div>
-              <button class="btn section-spacer" :disabled="percent < 95 || preview">
+              <button class="btn section-spacer" :disabled="!learning?.completed || preview">
                 提交评价
               </button>
               <p class="caption section-spacer">完成课程后可提交评价，最终以服务端完成状态为准。</p>
@@ -385,9 +566,23 @@ onUnmounted(() => {
           <section class="panel chapter-panel">
             <header class="panel-head">
               <h2>课程目录</h2>
-              <span class="tag">{{ percent }}%</span>
+              <span class="tag">{{ preview ? '预览' : percent + '%' }}</span>
             </header>
             <div class="progress"><i :style="{ width: percent + '%' }" /></div>
+            <p class="caption completion-summary">
+              {{
+                preview
+                  ? '仅查看课程内容'
+                  : '已完成视频 ' +
+                    (learning?.videoCompleted || 0) +
+                    '/' +
+                    (learning?.videoTotal || 0) +
+                    ' · 必读资料 ' +
+                    (learning?.materialCompleted || 0) +
+                    '/' +
+                    (learning?.materialTotal || 0)
+              }}
+            </p>
             <button
               v-for="(l, i) in detail.lessons"
               :key="l.id"
@@ -409,6 +604,22 @@ onUnmounted(() => {
                 ></span
               ><Icon :name="l.id === selected?.id ? 'play' : 'right'" :size="14" />
             </button>
+            <div
+              v-for="m in materials.filter((item) => item.required)"
+              :key="'material-' + m.id"
+              class="chapter material-chapter"
+            >
+              <span class="chapter-index"
+                ><Icon :name="m.acknowledged && !preview ? 'check' : 'file'" :size="15"
+              /></span>
+              <span
+                ><b>{{ m.title }}</b
+                ><small
+                  >{{ materialLabel(m) }} ·
+                  {{ preview ? '必读资料' : m.acknowledged ? '已确认阅读' : '待阅读确认' }}</small
+                ></span
+              >
+            </div>
           </section>
           <section class="panel ai-panel">
             <header class="panel-head">
@@ -445,6 +656,99 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 22px;
+}
+.document-hero {
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  border: 1px solid #dae5f3;
+  border-radius: 9px;
+  padding: 32px;
+  background: linear-gradient(120deg, #edf4ff, #fff 85%);
+}
+.document-hero-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 14px;
+  background: #003f98;
+  color: #ffcb0b;
+  margin-bottom: 20px;
+}
+.document-hero h2 {
+  font-size: 23px;
+  margin: 12px 0;
+  color: #00274c;
+}
+.document-hero p {
+  font-size: 12px;
+  color: #7085a1;
+  line-height: 1.9;
+  margin-bottom: 18px;
+}
+.completion-summary {
+  line-height: 1.8;
+  margin-top: 12px;
+}
+.material-notice {
+  margin-bottom: 24px;
+}
+.material-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.material-heading h3 {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.material-heading .tag {
+  flex-shrink: 0;
+}
+.material-done {
+  background: #edf7f1;
+  color: #3c8a64;
+}
+.material-block .prose {
+  margin-top: 14px;
+  overflow-wrap: anywhere;
+}
+.resource-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  margin-top: 16px;
+}
+.resource-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 16px;
+  overflow-wrap: anywhere;
+}
+.material-confirm {
+  margin-top: 20px;
+}
+.material-confirm .btn {
+  font-size: 11px;
+}
+.pdf-preview {
+  display: block;
+  width: 100%;
+  height: 520px;
+  margin-top: 20px;
+  border: 1px solid #dbe4f0;
+  border-radius: 6px;
+}
+.material-chapter {
+  cursor: default;
 }
 .video-frame {
   background: #001c3c;
@@ -583,6 +887,18 @@ onUnmounted(() => {
   }
 }
 @media (max-width: 620px) {
+  .document-hero {
+    padding: 24px;
+  }
+  .document-hero h2 {
+    font-size: 19px;
+  }
+  .pdf-preview {
+    height: 380px;
+  }
+  .material-heading {
+    flex-wrap: wrap;
+  }
   .player-layout > aside {
     display: flex;
   }

@@ -2,7 +2,13 @@
 import { computed } from 'vue'
 import Icon from './Icon.vue'
 import CourseArt from './CourseArt.vue'
-const p = defineProps({ course: Object, progress: { type: Number, default: 0 } })
+const p = defineProps({
+  course: Object,
+  progress: { type: Number, default: 0 },
+  completed: { type: Boolean, default: undefined },
+  format: { type: String, default: '培训课程' },
+})
+const isCompleted = computed(() => p.completed ?? p.progress >= 100)
 const tone = computed(
   () =>
     p.course.tone ||
@@ -19,7 +25,7 @@ const tone = computed(
       <div class="course-tags">
         <span>{{ course.badge || '岗位学习' }}</span
         ><span class="muted">{{
-          progress >= 95 ? '已完成' : progress > 0 ? '学习中' : '待学习'
+          isCompleted ? '已完成' : progress > 0 ? '学习中' : '待学习'
         }}</span>
       </div>
       <h3>
@@ -31,7 +37,7 @@ const tone = computed(
       </div>
       <div class="progress"><i :style="{ width: Math.min(100, progress) + '%' }" /></div>
       <footer>
-        <span><Icon name="video" :size="14" />视频课程</span
+        <span><Icon :name="format === '资料课程' ? 'file' : 'book'" :size="14" />{{ format }}</span
         ><RouterLink :to="'/courses/' + course.id"
           >{{ progress ? '继续学习' : '开始学习' }}<Icon name="arrow" :size="15"
         /></RouterLink>

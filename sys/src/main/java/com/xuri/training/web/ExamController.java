@@ -4,6 +4,7 @@ import com.xuri.training.mapper.ExamMapper;
 import com.xuri.training.security.*;
 import com.xuri.training.service.*;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import java.io.IOException;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -141,9 +142,12 @@ public class ExamController {
   }
 
   @PutMapping("/teaching/attempts/{id}/grade")
-  public void grade(@PathVariable String id, @Valid @RequestBody Requests.Grade r) {
-    service.grade(id, r.questionId(), r.score());
+  public void grade(@PathVariable String id, @Valid @RequestBody EssayGrade r) {
+    service.grade(id, r.questionId(), r.score(), r.feedback());
   }
+
+  public record EssayGrade(
+      @Positive long questionId, @NotNull @Min(0) Integer score, @Size(max = 1000) String feedback) {}
 
   @GetMapping("/learning/wrong-answers")
   public Object wrong() {

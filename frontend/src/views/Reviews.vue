@@ -44,7 +44,7 @@ async function submit() {
     <span class="tag">{{ rows.length }} 门待审核</span>
   </div>
   <div class="notice">
-    审核内容准确性、视频可用性、标准时长与文字资料。审核发布后，课程作者原账号将增加讲师身份。不能审核本人课程。
+    核验视频、PDF、PPT和网页资料的内容与可用性。纯资料课程也可审核发布；课程作者发布后兼任内训师，不能审核本人课程。
   </div>
   <LoadState :loading="loading" :error="error" @retry="reload"
     ><div class="table-wrap" v-if="rows.length">
@@ -80,9 +80,9 @@ async function submit() {
     <div class="inline-meta section-spacer">
       <span>课程作者 ID {{ selected.owner_id }}</span
       ><span>{{ detail.lessons.length }} 个章节</span
-      ><span>{{ detail.materials.length }} 份文字资料</span>
+      ><span>{{ detail.materials.length }} 份课程资料</span>
     </div>
-    <div class="table-wrap section-spacer">
+    <div v-if="detail.lessons.length" class="table-wrap section-spacer">
       <table>
         <thead>
           <tr>
@@ -100,11 +100,15 @@ async function submit() {
         </tbody>
       </table>
     </div>
+    <p v-else class="notice section-spacer">本课程没有视频章节，请核验必读资料后再审核。</p>
+    <div v-if="detail.materials.length" class="section-spacer">
+      <p v-for="m in detail.materials" :key="m.id" class="caption section-spacer">{{ m.title }} · {{ m.material_type || 'TEXT' }} · {{ m.required ? '必读' : '选读' }}</p>
+    </div>
     <RouterLink
       class="btn outline small section-spacer"
-      :to="'/courses/' + selected.id"
+      :to="'/courses/' + selected.id + '?preview=1'"
       @click="selected = null"
-      ><Icon name="play" :size="14" />预览视频与讲义</RouterLink
+      ><Icon name="play" :size="14" />预览课程内容</RouterLink
     >
     <form @submit.prevent="submit" class="section-spacer">
       <div class="field">

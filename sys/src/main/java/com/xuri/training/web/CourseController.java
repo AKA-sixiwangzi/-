@@ -76,7 +76,18 @@ public class CourseController {
 
   @PostMapping("/courses/{id}/materials")
   public Object material(@PathVariable long id, @Valid @RequestBody Requests.Material r) {
-    return courses.material(id, r.title(), r.content(), r.assetId());
+    return courses.material(
+        id, r.title(), r.content(), r.assetId(), r.materialType(), r.externalUrl(), r.required());
+  }
+
+  @GetMapping("/courses/{id}/learning-status")
+  public Object learningStatus(@PathVariable long id) {
+    return courses.learningStatus(id);
+  }
+
+  @PostMapping("/materials/{id}/acknowledge")
+  public Object acknowledge(@PathVariable long id) {
+    return courses.acknowledgeMaterial(id);
   }
 
   @PostMapping("/courses/{id}/submit-review")

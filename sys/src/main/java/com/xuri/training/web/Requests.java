@@ -54,8 +54,11 @@ public final class Requests {
 
   public record Material(
       @NotBlank @Size(max = 200) String title,
-      @NotNull @Size(max = 200000) String content,
-      @Pattern(regexp = "[0-9a-fA-F-]{36}") String assetId) {}
+      @Size(max = 200000) String content,
+      @Pattern(regexp = "[0-9a-fA-F-]{36}") String assetId,
+      @Pattern(regexp = "TEXT|PDF|PPT|LINK") String materialType,
+      @Size(max = 2048) String externalUrl,
+      Boolean required) {}
 
   public record Review(boolean approve, @NotBlank @Size(max = 1000) String note) {}
 

@@ -5,6 +5,8 @@ import static com.xuri.training.common.Rows.*;
 import com.xuri.training.common.*;
 import com.xuri.training.mapper.*;
 import com.xuri.training.security.*;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -117,26 +119,137 @@ public class CourseService {
 
   @Transactional
   public Map<String, Object> material(long course, String title, String content, String asset) {
+    return material(course, title, content, asset, null, null, false);
+  }
+
+  @Transactional
+  public Map<String, Object> material(
+      long course, String title, String content, String asset, String type, String url, Boolean required) {
     editable(course);
     assetOwned(asset);
+    Problem.require(title != null && !title.isBlank() && title.length() <= 200, 400, "请填写资料标题");
+    Map<String, Object> file = asset == null ? null : found(db.asset(asset));
+    String kind = type == null ? inferredType(file) : type;
+    String body = content == null ? "" : content;
+    String link = url == null || url.isBlank() ? null : url.trim();
+    validateMaterial(kind, body, file, link);
     Map<String, Object> r =
-        row("course_id", course, "title", title, "content", content, "asset_id", asset);
+        row("course_id", course, "title", title, "content", body, "asset_id", asset,
+            "material_type", kind, "external_url", link, "required", Boolean.TRUE.equals(required));
     db.materialCreate(r);
     return r;
+  }
+
+  private String inferredType(Map<String, Object> file) {
+    if (file == null) return "TEXT";
+    return switch (str(file, "content_type")) {
+      case "application/pdf" -> "PDF";
+      case "application/vnd.ms-powerpoint",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "PPT";
+      default -> "TEXT";
+    };
+  }
+
+  private void validateMaterial(String kind, String content, Map<String, Object> file, String url) {
+    Problem.require(Set.of("TEXT", "PDF", "PPT", "LINK").contains(kind), 400, "资料类型不支持");
+    Problem.require(content.length() <= 200000, 400, "资料正文超过长度限制");
+    String mime = file == null ? "" : str(file, "content_type");
+    if ("LINK".equals(kind)) {
+      Problem.require(file == null, 400, "链接资料不能同时关联上传文件");
+      Problem.require(validLink(url), 400, "链接必须是没有账号密码且带有效主机名的HTTP或HTTPS地址");
+      return;
+    }
+    Problem.require(url == null, 400, "仅链接资料可以设置外部地址");
+    switch (kind) {
+      case "PDF" -> Problem.require("application/pdf".equals(mime), 400, "PDF资料必须关联PDF文件");
+      case "PPT" -> Problem.require(
+          Set.of("application/vnd.ms-powerpoint",
+              "application/vnd.openxmlformats-officedocument.presentationml.presentation").contains(mime),
+          400, "PPT资料必须关联PPT或PPTX文件");
+      default -> {
+        Problem.require(file == null || "text/plain".equals(mime), 400, "文字资料只能关联TXT文件");
+        Problem.require(!content.isBlank() || file != null, 400, "文字资料需要正文或TXT附件");
+      }
+    }
+  }
+
+  private boolean validLink(String value) {
+    if (value == null || value.length() > 2048) return false;
+    try {
+      URI uri = new URI(value);
+      String scheme = uri.getScheme();
+      return scheme != null && (scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))
+          && uri.getHost() != null && !uri.getHost().isBlank()
+          && uri.getRawUserInfo() == null && (uri.getPort() == -1 || uri.getPort() <= 65535);
+    } catch (URISyntaxException e) {
+      return false;
+    }
+  }
+
+  private boolean flag(Object value) {
+    return Boolean.TRUE.equals(value) || value instanceof Number n && n.intValue() != 0;
+  }
+
+  private Map<String, Object> learningState(long user, long course) {
+    List<Map<String, Object>> videos = db.learningVideos(user, course);
+    List<Map<String, Object>> materials = db.learningMaterials(user, course);
+    long videoTotal = videos.size();
+    long videoCompleted = videos.stream().filter(v -> flag(v.get("completed"))).count();
+    long materialTotal = materials.stream().filter(m -> flag(m.get("required"))).count();
+    long materialCompleted = materials.stream()
+        .filter(m -> flag(m.get("required")) && flag(m.get("acknowledged"))).count();
+    long total = videoTotal + materialTotal, complete = videoCompleted + materialCompleted;
+    return row("completed", total > 0 && complete == total,
+        "videoCompleted", videoCompleted, "videoTotal", videoTotal,
+        "materialCompleted", materialCompleted, "materialTotal", materialTotal,
+        "materials", materials, "percent", total == 0 ? 0d : Math.round(10000d * complete / total) / 100d);
+  }
+
+  public Map<String, Object> learningStatus(long course) {
+    readable(course);
+    return learningState(Current.actor().id(), course);
+  }
+
+  // Called while the learner is locked by a heartbeat or explicit material confirmation.
+  public void recalculateCompletion(long user, long course) {
+    db.completion(user, course, Boolean.TRUE.equals(learningState(user, course).get("completed")));
+  }
+
+  @Transactional
+  public Map<String, Object> acknowledgeMaterial(long material) {
+    long user = Current.actor().id();
+    users.lockUser(user);
+    Map<String, Object> resource = found(db.material(material));
+    long course = id(resource, "course_id");
+    enrolled(user, course);
+    db.acknowledge(user, material);
+    Map<String, Object> status = learningState(user, course);
+    db.completion(user, course, Boolean.TRUE.equals(status.get("completed")));
+    return status;
   }
 
   @Transactional
   public void submit(long id) {
     editable(id);
     List<Map<String, Object>> ls = db.lessons(id);
+    List<Map<String, Object>> required = db.materials(id).stream()
+        .filter(material -> flag(material.get("required"))).toList();
     Problem.require(
-        !ls.isEmpty() && ls.stream().allMatch(l -> l.get("video_asset_id") != null),
+        (!ls.isEmpty() || !required.isEmpty())
+            && ls.stream().allMatch(l -> l.get("video_asset_id") != null),
         400,
-        "请先上传课程视频并配置章节");
+        "请配置有效视频章节，或添加至少一份必读资料");
+    for (Map<String, Object> material : required) {
+      String asset = material.get("asset_id") == null ? null : str(material, "asset_id");
+      Map<String, Object> file = asset == null ? null : found(db.asset(asset));
+      String type = material.get("material_type") == null ? inferredType(file) : str(material, "material_type");
+      validateMaterial(type, str(material, "content"), file,
+          material.get("external_url") == null ? null : str(material, "external_url"));
+    }
     db.status(id, "PENDING", null, "");
     db.reviewLog(id, Current.actor().id(), "SUBMIT", "提交审核");
     for (long admin : users.admins())
-      users.notifyUser(admin, "课程待审核 #" + id, "员工已提交课程，请在审核中心核验内容和视频时长。");
+      users.notifyUser(admin, "课程待审核 #" + id, "员工已提交课程，请核验课程内容、资料及视频章节时长。");
   }
 
   @Transactional

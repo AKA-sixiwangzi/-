@@ -67,8 +67,10 @@ public interface ProgramMapper {
   List<Map<String, Object>> stageExams(@Param("stage") long stage, @Param("user") long user);
 
   @Insert(
-      "INSERT INTO training_plan(title,start_at,due_at,owner_id)"
-          + " VALUES(#{title},#{start_at},#{due_at},#{owner_id})")
+      "INSERT INTO training_plan(title,start_at,due_at,owner_id,responsible_user_id,"
+          + "remind_before_hours,remind_every_hours,push_results)"
+          + " VALUES(#{title},#{start_at},#{due_at},#{owner_id},#{responsible_user_id},"
+          + "#{remind_before_hours},#{remind_every_hours},#{push_results})")
   @Options(useGeneratedKeys = true, keyProperty = "id")
   void plan(Map<String, Object> p);
 
@@ -76,7 +78,9 @@ public interface ProgramMapper {
   Map<String, Object> lockPlan(long id);
 
   @Select(
-      "SELECT p.* FROM training_plan p WHERE #{admin}=1 OR EXISTS(SELECT 1 FROM plan_member m WHERE"
+      "SELECT p.*,u.display_name AS responsible_name FROM training_plan p LEFT JOIN app_user u"
+          + " ON u.id=COALESCE(p.responsible_user_id,p.owner_id) WHERE #{admin}=1"
+          + " OR COALESCE(p.responsible_user_id,p.owner_id)=#{user} OR EXISTS(SELECT 1 FROM plan_member m WHERE"
           + " m.plan_id=p.id AND m.user_id=#{user}) ORDER BY p.due_at")
   List<Map<String, Object>> plans(@Param("admin") boolean admin, @Param("user") long user);
 
@@ -123,16 +127,4 @@ public interface ProgramMapper {
           + " SYSUTCDATETIME() ELSE issued_at END WHERE user_id=#{user} AND path_id=#{path}")
   void certificate(@Param("user") long user, @Param("path") long path);
 
-  @Select(
-      "SELECT TOP(500) p.id,p.title,m.user_id FROM training_plan p JOIN plan_member m ON"
-          + " m.plan_id=p.id WHERE p.status='PUBLISHED' AND"
-          + " p.due_at<DATEADD(day,3,SYSUTCDATETIME()) AND (EXISTS(SELECT 1 FROM plan_course pc"
-          + " LEFT JOIN course_enrollment e ON e.course_id=pc.course_id AND e.user_id=m.user_id"
-          + " WHERE pc.plan_id=p.id AND (e.completed IS NULL OR e.completed=0)) OR EXISTS(SELECT 1"
-          + " FROM plan_exam pe WHERE pe.plan_id=p.id AND NOT EXISTS(SELECT 1 FROM exam_attempt a"
-          + " WHERE a.exam_id=pe.exam_id AND a.user_id=m.user_id AND a.status='GRADED' AND"
-          + " a.passed=1))) AND NOT EXISTS(SELECT 1 FROM notification n WHERE n.user_id=m.user_id"
-          + " AND n.title=CONCAT(N'培训到期提醒 #',p.id) AND"
-          + " n.created_at>DATEADD(day,-1,SYSUTCDATETIME())) ORDER BY p.due_at")
-  List<Map<String, Object>> reminders();
 }

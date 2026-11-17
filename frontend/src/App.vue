@@ -21,6 +21,7 @@ const groups = computed(() => [
       ['/courses', 'book', '我的课程'],
       ['/paths', 'route', '成长路线'],
       ['/plans', 'calendar', '培训计划'],
+      ['/offline-training', 'teach', '线下培训'],
       ['/exams', 'exam', '考试中心'],
       ['/results', 'award', '培训成果'],
     ],
@@ -32,6 +33,7 @@ const groups = computed(() => [
       ...(teacher.value || admin.value
         ? [
             ['/teaching', 'teach', '授课工作台'],
+            ['/teaching/plans', 'calendar', '计划跟进看板'],
             ['/assessment', 'list', '题库与考试'],
           ]
         : []),
@@ -68,7 +70,8 @@ watch(
   () => [route.path, session.demoId, session.mode],
   async () => {
     mobile.value = false
-    if (session.me)
+    unread.value = 0
+    if (session.me && !(session.mode === 'api' && session.me.user?.must_change_password))
       try {
         unread.value = (await api('/notifications')).filter((n) => !n.read_at).length
       } catch {}

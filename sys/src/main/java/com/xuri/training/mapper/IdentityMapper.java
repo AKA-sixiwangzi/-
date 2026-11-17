@@ -33,6 +33,15 @@ public interface IdentityMapper {
   void create(Map<String, Object> u);
 
   @Insert(
+      "INSERT INTO app_user(username,password_hash,display_name,department_id,position_id,grade_id,must_change_password)"
+          + " VALUES(#{username},#{password_hash},#{display_name},#{department_id},#{position_id},#{grade_id},1)")
+  @Options(useGeneratedKeys = true, keyProperty = "id")
+  void createEmployee(Map<String, Object> u);
+
+  @Select("SELECT must_change_password FROM app_user WHERE id=#{id}")
+  Boolean mustChangePassword(long id);
+
+  @Insert(
       "IF NOT EXISTS(SELECT 1 FROM user_role WHERE user_id=#{id} AND role=#{role}) INSERT INTO"
           + " user_role(user_id,role) VALUES(#{id},#{role})")
   void grant(@Param("id") long id, @Param("role") String role);
@@ -46,7 +55,7 @@ public interface IdentityMapper {
   @Update("UPDATE app_user SET active=#{active} WHERE id=#{id}")
   int active(@Param("id") long id, @Param("active") boolean active);
 
-  @Update("UPDATE app_user SET password_hash=#{hash} WHERE id=#{id}")
+  @Update("UPDATE app_user SET password_hash=#{hash},must_change_password=0 WHERE id=#{id}")
   int password(@Param("id") long id, @Param("hash") String hash);
 
   @Update(
@@ -59,12 +68,12 @@ public interface IdentityMapper {
   void revokeScope(@Param("user") long user, @Param("dept") long dept);
 
   @Select(
-      "SELECT id,username,display_name,department_id,position_id,grade_id,active FROM app_user"
+      "SELECT id,username,display_name,department_id,position_id,grade_id,active,must_change_password FROM app_user"
           + " ORDER BY id OFFSET #{offset} ROWS FETCH NEXT 100 ROWS ONLY")
   List<Map<String, Object>> users(int offset);
 
   @Select(
-      "SELECT id,username,display_name,department_id,position_id,grade_id,active FROM app_user"
+      "SELECT id,username,display_name,department_id,position_id,grade_id,active,must_change_password FROM app_user"
           + " WHERE id=#{id}")
   Map<String, Object> profile(long id);
 

@@ -19,12 +19,16 @@ import Messages from '../views/Messages.vue'
 import Settings from '../views/Settings.vue'
 import Login from '../views/Login.vue'
 import LearningRequests from '../views/LearningRequests.vue'
+import OfflineTraining from '../views/OfflineTraining.vue'
+import TeachingPlans from '../views/TeachingPlans.vue'
 const routes = [
   { path: '/', component: Home, meta: { title: '学习工作台' } },
   { path: '/courses', component: Courses, meta: { title: '课程中心' } },
   { path: '/courses/:id', component: Player, meta: { title: '课程学习' } },
   { path: '/paths', component: Paths, meta: { title: '我的成长路线' } },
   { path: '/plans', component: Plans, meta: { title: '培训计划' } },
+  { path: '/offline-training', component: OfflineTraining, meta: { title: '线下培训' } },
+  { path: '/teaching/plans', component: TeachingPlans, meta: { title: '计划跟进看板' } },
   { path: '/exams', component: Exams, meta: { title: '考试中心' } },
   { path: '/attempt/:id', component: Attempt, meta: { title: '在线考试' } },
   { path: '/results', component: Results, meta: { title: '我的培训成果' } },
@@ -71,8 +75,9 @@ router.beforeEach(async (to) => {
     } catch (e) {
       toast(e.message, 'error')
     }
-  if (to.path === '/login') return session.me ? '/' : true
+  if (to.path === '/login') return session.me ? (session.me.user?.must_change_password ? '/settings' : '/') : true
   if (!session.me) return '/login'
+  if (session.mode === 'api' && session.me.user?.must_change_password && to.path !== '/settings') return '/settings'
   if (to.meta.roles && !to.meta.roles.some((r) => session.me.roles.includes(r))) {
     toast('当前身份无权访问该工作区', 'error')
     return '/'

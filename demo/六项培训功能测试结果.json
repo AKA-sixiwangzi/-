@@ -1,0 +1,158 @@
+{
+  "date": "2026-11-17",
+  "timezone": "Asia/Shanghai",
+  "version": "V1.3",
+  "features": [
+    "员工自动账号与首次改密",
+    "多格式及纯资料课程",
+    "负责人提醒与结果推送",
+    "简答题人工阅卷",
+    "线下参训记录",
+    "讲师计划跟进看板"
+  ],
+  "frontend": {
+    "tests": 52,
+    "passed": 52,
+    "failed": 0,
+    "productionBuild": "passed",
+    "singleFileBuild": "passed"
+  },
+  "backend": {
+    "tests": 216,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 215
+  },
+  "browser": {
+    "account": {
+      "scenario": "添加员工自动账号与首次登录改密浏览器检查",
+      "checks": [
+        {
+          "name": "通过真实UI添加第1名员工，自动生成账号与初密、唯一关联、关闭后保留账号",
+          "passed": true,
+          "plaintextPasswordPersisted": false
+        },
+        {
+          "name": "通过真实UI添加第2名员工，自动生成账号与初密、唯一关联、关闭后保留账号",
+          "passed": true,
+          "plaintextPasswordPersisted": false
+        },
+        {
+          "name": "同名两员工账号不同，每次只增加一条记录；刷新保留账号且不再显示初密",
+          "passed": true,
+          "createdEmployees": 2,
+          "uniqueAccounts": 2
+        },
+        {
+          "name": "HTTP契约stub：直接访问课程被重定向设置，只获取当前用户，没有业务数据请求",
+          "passed": true
+        },
+        {
+          "name": "HTTP契约stub：确认密码不一致时前端阻止提交，不发改密请求",
+          "passed": true
+        },
+        {
+          "name": "HTTP契约stub：正确PUT密码字段、成功后调用退出并清会话，返回登录页",
+          "passed": true,
+          "passwordPutRequests": 1,
+          "logoutRequests": 1,
+          "tokenCleared": true
+        }
+      ],
+      "limitations": [
+        "首次改密使用独立HTTP契约stub；没有连接真实Tomcat或SQL Server"
+      ],
+      "pageErrorCount": 0,
+      "firstLoginRequests": [
+        {
+          "path": "/api/me",
+          "method": "GET"
+        }
+      ],
+      "firstLoginUnexpectedRequests": [],
+      "passed": true,
+      "finishedAt": "2026-11-17T00:33:56.164Z"
+    },
+    "essay": {
+      "scenario": "UI 简答题人工阅卷、空题确认零分、成果回写",
+      "checks": [
+        {
+          "name": "员工已完成前置课程，考试3可参加",
+          "passed": true
+        },
+        {
+          "name": "通过员工UI保存客观题及第一简答，第二简答保持未作答",
+          "passed": true
+        },
+        {
+          "name": "交卷进入待阅卷：客观题已判40分，两道简答均待人工确认，总分未发布",
+          "passed": true,
+          "status": "PENDING_GRADE",
+          "score": null
+        },
+        {
+          "name": "切换讲师8，通过人工阅卷队列打开员工提交；未作答题仍有评分输入",
+          "passed": true
+        },
+        {
+          "name": "第一简答评分后仍待阅卷且总分未发布；该题不可再次编辑",
+          "passed": true,
+          "status": "PENDING_GRADE",
+          "score": null
+        },
+        {
+          "name": "空白简答经人工零分确认后最终成绩发布：70分未通过；全部评分表单消失",
+          "passed": true,
+          "status": "GRADED",
+          "score": 70,
+          "examPassed": false
+        },
+        {
+          "name": "两题评语已持久保存并在已评分题目中展示",
+          "passed": true
+        },
+        {
+          "name": "最终阅卷完成的提交从待阅队列移除",
+          "passed": true
+        },
+        {
+          "name": "员工成果页面收到最终70分、未通过、已阅卷状态",
+          "passed": true
+        }
+      ],
+      "errors": [],
+      "feedback": {
+        "displayed": true,
+        "persisted": true
+      },
+      "screenshot": "demo/简答题人工阅卷.png",
+      "passed": true,
+      "finishedAt": "2026-11-17T00:28:50.265Z"
+    },
+    "workflow": {
+      "pdfPptLinkTxtUploaded": true,
+      "pureMaterialCoursePublishedAndAssigned": true,
+      "openingPdfDoesNotComplete": true,
+      "allRequiredAcknowledgementsGateCompletion": true,
+      "materialLearningDoesNotCreateVideoTime": true,
+      "mobileNoOverflow": true,
+      "offlineAttendanceRecorded": true,
+      "personalOfflineRecordAndPrivacy": true,
+      "offlineDoesNotAlterVideoProgress": true,
+      "responsibleRulesSaved": true,
+      "resultDigestAndReminderDeduplicated": true,
+      "instructorPlanDashboardLinked": true,
+      "builtArtifactWorksOffline": true,
+      "pageErrors": []
+    }
+  },
+  "limitations": {
+    "sqlServerMigrationExecuted": false,
+    "tomcatSqlServerEndToEndTested": false,
+    "fileProtocolDoubleClickTested": false,
+    "firstPasswordUiUsedHttpContractStub": true,
+    "pptConvertedToOnlineSlides": false,
+    "offlineDemoUploadsPersistAcrossReload": false
+  }
+}

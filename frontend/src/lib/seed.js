@@ -139,23 +139,38 @@ export function seed() {
       tone: 'craft',
       badge: '专项提升',
     },
+    {
+      id: 8,
+      title: '新员工制度学习手册',
+      category: '制度学习',
+      description: '以必读资料完成制度学习，无需配置视频。管理员可单独分配给指定员工。',
+      owner_id: 8,
+      status: 'PUBLISHED',
+      tone: 'craft',
+      badge: '资料课程',
+    },
   ]
-  const lessons = courses.flatMap((c) =>
-    ['认识关键要点', '把方法用在工作中', '回顾与行动清单'].map((title, i) => ({
-      id: c.id * 10 + i,
-      course_id: c.id,
-      title,
-      sort_order: i + 1,
-      duration_seconds: 30,
-      video_asset_id: 'demo-video',
-      coverage_threshold: 0.95,
-      time_threshold: 0.95,
-    })),
-  )
+  const lessons = courses
+    .filter((c) => c.id !== 8)
+    .flatMap((c) =>
+      ['认识关键要点', '把方法用在工作中', '回顾与行动清单'].map((title, i) => ({
+        id: c.id * 10 + i,
+        course_id: c.id,
+        title,
+        sort_order: i + 1,
+        duration_seconds: 30,
+        video_asset_id: 'demo-video',
+        coverage_threshold: 0.95,
+        time_threshold: 0.95,
+      })),
+    )
   const materials = courses.map((c) => ({
     id: c.id,
     course_id: c.id,
     title: c.title + ' · 课程讲义',
+    material_type: 'TEXT',
+    required: c.id === 8,
+    asset_id: null,
     content:
       c.id === 1
         ? '操作前确认：检查设备状态、核实防护用品、阅读操作规范。发现异常应立即停止作业，并向负责人报告。未经许可，不得省略规定的检查流程。'
@@ -220,6 +235,28 @@ export function seed() {
       explanation: '发现异常应立即停止作业并报告。',
       status: 'APPROVED',
     },
+    {
+      id: 4,
+      course_id: 2,
+      owner_id: 8,
+      type: 'TEXT',
+      stem: '请举一个可以用AI辅助完成的日常工作，并说明如何核实结果。',
+      options_json: '{}',
+      answer: '明确工作目标与输入资料，使用AI整理草稿，人工对照原始资料核实关键事实。',
+      explanation: '评价任务描述、核验方法与实际可操作性。',
+      status: 'APPROVED',
+    },
+    {
+      id: 5,
+      course_id: 2,
+      owner_id: 8,
+      type: 'TEXT',
+      stem: '使用AI处理公司资料前，需要注意哪些信息保护事项？',
+      options_json: '{}',
+      answer: '遵守公司权限和保密规定，确认工具使用范围，避免上传未经批准的敏感资料。',
+      explanation: '评价权限、保密和工具范围意识。',
+      status: 'APPROVED',
+    },
   ]
   const papers = [
     {
@@ -238,6 +275,17 @@ export function seed() {
       owner_id: 8,
       published: true,
       items: [{ id: 103, question_id: 3, score: 100, snapshot: questions[2] }],
+    },
+    {
+      id: 3,
+      title: 'AI办公实践与简答测验',
+      owner_id: 8,
+      published: true,
+      items: [
+        { id: 301, question_id: 1, score: 40, snapshot: questions[0] },
+        { id: 302, question_id: 4, score: 30, snapshot: questions[3] },
+        { id: 303, question_id: 5, score: 30, snapshot: questions[4] },
+      ],
     },
   ]
   return {
@@ -273,11 +321,15 @@ export function seed() {
         id: 1,
         title: '新员工岗位基础训练营',
         owner_id: 1,
+        responsible_user_id: 8,
+        remind_before_hours: 72,
+        remind_every_hours: 24,
+        push_results: true,
         start_at: later(-7),
         due_at: later(10),
         status: 'PUBLISHED',
         courseIds: [1, 2, 3],
-        examIds: [1, 2],
+        examIds: [1, 2, 3],
         userIds: [7, 9, 10],
       },
     ],
@@ -327,6 +379,20 @@ export function seed() {
         courseIds: [1, 3],
         userIds: [7, 9, 10],
       },
+      {
+        id: 3,
+        title: 'AI办公实践简答考核',
+        paper_id: 3,
+        owner_id: 8,
+        stage_id: null,
+        start_at: later(-2),
+        end_at: later(15),
+        duration_minutes: 20,
+        pass_score: 80,
+        max_attempts: 2,
+        courseIds: [2],
+        userIds: [7],
+      },
     ],
     certificates: [],
     notifications: [
@@ -346,6 +412,31 @@ export function seed() {
     files: [],
     audit: [],
     learningRequests: [],
+    materialAcknowledgements: [],
+    planNotices: [],
+    offlineSessions: [
+      {
+        id: 1,
+        title: '安全操作现场实训',
+        plan_id: 1,
+        course_id: 1,
+        instructor_id: 8,
+        start_at: new Date(now.getTime() - 26 * 3600000).toISOString(),
+        end_at: new Date(now.getTime() - 24 * 3600000).toISOString(),
+        location: '公司培训室',
+        created_by: 1,
+        created_at: later(-3),
+      },
+    ],
+    offlineAttendance: [7, 9].map((user_id) => ({
+      session_id: 1,
+      user_id,
+      status: 'REGISTERED',
+      score: null,
+      note: null,
+      recorded_by: null,
+      recorded_at: null,
+    })),
     learningRequestVersion: 1,
     fixedPositionVersion: 1,
     departments: [

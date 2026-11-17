@@ -344,7 +344,7 @@ public class ExamService {
       String answer = answers.getOrDefault(qid, "");
       db.answer(id, qid, answer);
       Map<String, Object> q = decode(str(p, "snapshot_json"));
-      if ("TEXT".equals(q.get("type")) && !answer.isBlank()) {
+      if ("TEXT".equals(q.get("type"))) {
         pending = true;
         continue;
       }
@@ -372,12 +372,19 @@ public class ExamService {
 
   @Transactional
   public void grade(String attempt, long question, int score) {
+    grade(attempt, question, score, null);
+  }
+
+  @Transactional
+  public void grade(String attempt, long question, int score, String feedback) {
     Map<String, Object> a = found(db.lockAttempt(attempt));
-    Map<String, Object> e = manageExam(id(a, "exam_id"));
+    Map<String, Object> e = gradingExam(id(a, "exam_id"));
     Problem.require(id(a, "user_id") != Current.actor().id(), 403, "不能批改自己的考试");
     Problem.require("PENDING_GRADE".equals(a.get("status")), 409, "考试不处于待阅卷状态");
+    Problem.require(feedback == null || feedback.length() <= 1000, 400, "阅卷评语不能超过1000字");
+    List<Map<String, Object>> questions = db.paperQuestions(id(e, "paper_id"));
     Map<String, Object> p =
-        db.paperQuestions(id(e, "paper_id")).stream()
+        questions.stream()
             .filter(v -> id(v, "id") == question)
             .findFirst()
             .orElseThrow(() -> new Problem(400, "题目不属于试卷"));
@@ -387,10 +394,24 @@ public class ExamService {
             && score <= num(p, "score"),
         400,
         "只能批改主观题，且不得超出分值范围");
-    Problem.require(db.grade(attempt, question, score, Current.actor().id()) == 1, 400, "没有该题作答记录");
+    Map<String, Object> answer =
+        db.answers(attempt).stream()
+            .filter(v -> id(v, "paper_question_id") == question)
+            .findFirst()
+            .orElseThrow(() -> new Problem(400, "没有该题作答记录"));
+    Problem.require(answer.get("score") == null, 409, "该题已经完成阅卷");
+    Problem.require(
+        db.gradeEssay(attempt, question, score, Current.actor().id(), feedback) == 1,
+        409,
+        "该题已经完成阅卷，请刷新查看");
     List<Map<String, Object>> answers = db.answers(attempt);
-    if (answers.stream().allMatch(v -> v.get("score") != null)) {
-      int total = answers.stream().mapToInt(v -> ((Number) v.get("score")).intValue()).sum();
+    Map<Long, Map<String, Object>> byQuestion = new HashMap<>();
+    for (Map<String, Object> item : answers) byQuestion.put(id(item, "paper_question_id"), item);
+    if (questions.stream()
+        .allMatch(v -> byQuestion.containsKey(id(v, "id"))
+            && byQuestion.get(id(v, "id")).get("score") != null)) {
+      int total = questions.stream()
+          .mapToInt(v -> ((Number) byQuestion.get(id(v, "id")).get("score")).intValue()).sum();
       db.result(
           row(
               "id",
@@ -406,6 +427,18 @@ public class ExamService {
       messages.notify(id(a, "user_id"), "考试成绩已发布", str(e, "title"));
     }
     users.audit(Current.actor().id(), "EXAM_GRADE", attempt, question + ":" + score);
+  }
+
+  private Map<String, Object> gradingExam(long id) {
+    Map<String, Object> exam = found(db.examById(id));
+    Actor actor = Current.actor();
+    boolean authorized = actor.admin() || id(exam, "owner_id") == actor.id();
+    if (!authorized) {
+      Map<String, Object> paper = found(db.paperById(id(exam, "paper_id")));
+      authorized = id(paper, "owner_id") == actor.id();
+    }
+    Problem.require(authorized, 403, "只能批改自己负责的考试或试卷");
+    return exam;
   }
 
   public Map<String, Object> manageExam(long id) {
@@ -437,10 +470,30 @@ public class ExamService {
 
   public Map<String, Object> gradingView(String id) {
     Map<String, Object> a = found(db.attemptById(id));
-    Map<String, Object> e = manageExam(id(a, "exam_id"));
+    Map<String, Object> e = gradingExam(id(a, "exam_id"));
     Problem.require(id(a, "user_id") != Current.actor().id(), 403, "不能批改自己的考试");
-    return row(
-        "attempt", a, "questions", db.paperQuestions(id(e, "paper_id")), "answers", db.answers(id));
+    Problem.require(
+        Set.of("PENDING_GRADE", "GRADED").contains(str(a, "status")), 409, "考试尚未交卷");
+    List<Map<String, Object>> answers = db.answers(id);
+    Map<Long, Map<String, Object>> byQuestion = new HashMap<>();
+    for (Map<String, Object> answer : answers) {
+      byQuestion.put(id(answer, "paper_question_id"), answer);
+    }
+    List<Map<String, Object>> questions = new ArrayList<>();
+    for (Map<String, Object> item : db.paperQuestions(id(e, "paper_id"))) {
+      Map<String, Object> question = new HashMap<>(item);
+      Map<String, Object> snapshot = decode(str(item, "snapshot_json"));
+      Map<String, Object> answer = byQuestion.getOrDefault(id(item, "id"), Map.of());
+      question.putAll(row(
+          "type", snapshot.get("type"), "stem", snapshot.get("stem"),
+          "options", decode(str(snapshot, "options_json")),
+          "max_score", item.get("score"), "reference_answer", snapshot.get("answer"),
+          "explanation", snapshot.get("explanation"),
+          "student_answer", str(answer, "answer"), "earned_score", answer.get("score"),
+          "grading_feedback", answer.get("grading_feedback"), "grader_id", answer.get("grader_id")));
+      questions.add(question);
+    }
+    return row("attempt", a, "exam", e, "questions", questions, "answers", answers);
   }
 
   public List<Map<String, Object>> center() {

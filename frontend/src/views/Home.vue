@@ -9,9 +9,14 @@ import LoadState from '../components/LoadState.vue'
 import Empty from '../components/Empty.vue'
 const info = ref({ summary: {}, courses: [] }),
   progress = ref({}),
+  learning = ref({}),
   plans = ref([]),
   exams = ref([]),
   path = ref(null)
+function courseFormat(state) {
+  if (state?.videoTotal === undefined) return '培训课程'
+  return state.videoTotal ? (state.materials?.length ? '视频 + 资料' : '视频课程') : '资料课程'
+}
 const { loading, error, reload } = useLoad(async () => {
   const [r, p, e, paths] = await Promise.all([
     api('/dashboards/personal'),
@@ -23,19 +28,16 @@ const { loading, error, reload } = useLoad(async () => {
   plans.value = p
   exams.value = e
   progress.value = {}
+  learning.value = {}
   await Promise.all(
     r.courses.slice(0, 3).map(async (c) => {
       try {
-        const ls = await api('/courses/' + c.id + '/progress')
-        progress.value[c.id] =
-          (ls.reduce((s, x) => s + x.covered_seconds, 0) /
-            Math.max(
-              1,
-              ls.reduce((s, x) => s + x.duration_seconds, 0),
-            )) *
-          100
+        const state = await api('/courses/' + c.id + '/learning-status')
+        learning.value[c.id] = state
+        progress.value[c.id] = state.percent
       } catch {
         progress.value[c.id] = c.completed ? 100 : 0
+        learning.value[c.id] = { completed: !!c.completed }
       }
     }),
   )
@@ -193,6 +195,8 @@ const stats = computed(() => [
               :key="c.id"
               :course="c"
               :progress="progress[c.id] || 0"
+              :completed="!!learning[c.id]?.completed"
+              :format="courseFormat(learning[c.id])"
             />
           </div>
           <Empty

@@ -147,18 +147,49 @@ export async function switchDemo(id) {
   await loadMe()
 }
 const temporaryFiles = new Map()
+function fileType(file) {
+  const extension = file.name.split('.').at(-1).toLowerCase()
+  return (
+    {
+      pdf: 'application/pdf',
+      ppt: 'application/vnd.ms-powerpoint',
+      pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      txt: 'text/plain',
+      mp4: 'video/mp4',
+      webm: 'video/webm',
+    }[extension] ||
+    file.type ||
+    'application/octet-stream'
+  )
+}
 export async function upload(file) {
   if (session.mode === 'demo') {
-    const id = 'demo-file-' + Date.now()
-    temporaryFiles.set(id, URL.createObjectURL(file))
-    return { id, name: file.name, size_bytes: file.size }
+    const id =
+      'demo-file-' + (globalThis.crypto?.randomUUID?.() || Date.now() + '-' + Math.random())
+    const metadata = { id, name: file.name, content_type: fileType(file), size_bytes: file.size }
+    const registered = await api('/files', 'POST', metadata)
+    temporaryFiles.set(id, { url: URL.createObjectURL(file), type: metadata.content_type })
+    return registered
   }
   const form = new FormData()
   form.append('file', file)
   return api('/files', 'POST', form)
 }
 export async function media(asset) {
-  if (session.mode === 'demo') return temporaryFiles.get(asset) || sampleVideo
+  if (session.mode === 'demo') {
+    const file = temporaryFiles.get(asset)
+    if (file?.type.startsWith('video/')) return file.url
+    if (asset === 'demo-video') return sampleVideo
+    throw new Error('演示视频文件已失效，请由创作者重新上传；刷新页面会清除临时上传文件。')
+  }
+  return resource(asset)
+}
+export async function resource(asset) {
+  if (session.mode === 'demo') {
+    const file = temporaryFiles.get(asset)
+    if (file) return file.url
+    throw new Error('演示附件已失效，请由创作者重新上传；刷新页面会清除临时上传文件。')
+  }
   const ticket = await api('/files/' + asset + '/ticket', 'POST')
   return session.apiBase.replace(/\/$/, '') + ticket.url.replace(/^\/api/, '')
 }

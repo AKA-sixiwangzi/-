@@ -275,17 +275,26 @@ public class ProgramService {
       List<Long> courseIds,
       List<Long> memberIds,
       List<Long> examIds) {
+    return plan(title, start, due, courseIds, memberIds, examIds, null, 72, 24, true);
+  }
+
+  @Transactional
+  public Map<String, Object> plan(
+      String title, LocalDateTime start, LocalDateTime due, List<Long> courseIds,
+      List<Long> memberIds, List<Long> examIds, Long responsibleUserId,
+      int remindBeforeHours, int remindEveryHours, boolean pushResults) {
     Current.actor().requireAdmin();
     Problem.require(
-        due.isAfter(start) && !courseIds.isEmpty() && !memberIds.isEmpty(), 400, "计划时间、课程或人员不合法");
-    Map<String, Object> p =
-        row("title", title, "start_at", start, "due_at", due, "owner_id", Current.actor().id());
-    db.plan(p);
-    long plan = id(p, "id");
-    for (long course : new TreeSet<>(courseIds)) {
-      publishedCourse(course);
-      db.planCourse(plan, course);
-    }
+        title != null && !title.isBlank() && title.length() <= 200 && start != null && due != null
+            && due.isAfter(start) && validPlanIds(courseIds, 100, false)
+            && validPlanIds(memberIds, 1000, false) && validPlanIds(examIds, 100, true),
+        400, "计划时间、课程或人员不合法");
+    Problem.require(remindBeforeHours >= 0 && remindBeforeHours <= 8760
+        && remindEveryHours >= 1 && remindEveryHours <= 720, 400, "提醒规则不合法");
+    long responsible = responsibleUserId == null ? Current.actor().id() : responsibleUserId;
+    Problem.require(Boolean.TRUE.equals(found(users.profile(responsible)).get("active")),
+        400, "负责人必须是启用员工");
+    for (long course : new TreeSet<>(courseIds)) publishedCourse(course);
     for (long exam : new TreeSet<>(examIds)) {
       found(exams.examById(exam));
       Problem.require(
@@ -293,13 +302,25 @@ public class ProgramService {
               .allMatch(c -> courseIds.contains(id(c, "id"))),
           400,
           "计划课程必须覆盖关联考试的前置课程");
-      db.planExam(plan, exam);
     }
-    for (long user : new TreeSet<>(memberIds)) {
-      found(users.profile(user));
-      db.planMember(plan, user);
-    }
+    for (long user : new TreeSet<>(memberIds))
+      Problem.require(Boolean.TRUE.equals(found(users.profile(user)).get("active")), 400, "计划不能包含停用员工");
+    Map<String, Object> p = row("title", title, "start_at", start, "due_at", due,
+        "owner_id", Current.actor().id(), "responsible_user_id", responsible,
+        "remind_before_hours", remindBeforeHours, "remind_every_hours", remindEveryHours,
+        "push_results", pushResults, "status", "DRAFT");
+    db.plan(p);
+    long plan = id(p, "id");
+    for (long course : new TreeSet<>(courseIds)) db.planCourse(plan, course);
+    for (long exam : new TreeSet<>(examIds)) db.planExam(plan, exam);
+    for (long user : new TreeSet<>(memberIds)) db.planMember(plan, user);
+    users.audit(Current.actor().id(), "PLAN_CREATE", Long.toString(plan), "responsible=" + responsible + "; " + title);
     return p;
+  }
+
+  private boolean validPlanIds(List<Long> values, int maximum, boolean emptyAllowed) {
+    return values != null && (emptyAllowed || !values.isEmpty()) && values.size() <= maximum
+        && values.stream().allMatch(value -> value != null && value > 0);
   }
 
   @Transactional
@@ -307,25 +328,36 @@ public class ProgramService {
     Current.actor().requireAdmin();
     Map<String, Object> p = found(db.lockPlan(plan));
     Problem.require("DRAFT".equals(p.get("status")), 409, "计划已发布");
-    for (long user : new TreeSet<>(db.planMembers(plan))) {
-      users.lockUser(user);
+    Set<Long> members = new TreeSet<>(db.planMembers(plan));
+    Problem.require(!members.isEmpty() && !db.planCourses(plan).isEmpty(), 409, "请先配置计划课程和员工");
+    long responsible = id(p, p.get("responsible_user_id") == null ? "owner_id" : "responsible_user_id");
+    Problem.require(Boolean.TRUE.equals(found(users.profile(responsible)).get("active")), 409, "计划负责人已停用，请先调整负责人");
+    for (long course : new TreeSet<>(db.planCourses(plan))) publishedCourse(course);
+    for (long user : members)
+      Problem.require(Boolean.TRUE.equals(found(users.lockUser(user)).get("active")), 409, "计划中存在停用员工");
+    for (long user : members) {
       for (long course : db.planCourses(plan)) courses.enroll(user, course);
       for (long exam : db.planExams(plan)) exams.member(exam, user);
       messages.notify(user, "培训任务已发布", str(p, "title"));
     }
     db.publishPlan(plan);
+    messages.notify(responsible, "请跟进培训计划学习与考核结果", str(p, "title"));
+    users.audit(Current.actor().id(), "PLAN_PUBLISH", Long.toString(plan), str(p, "title"));
   }
 
   public Map<String, Object> planDetail(long plan) {
     Map<String, Object> p = found(db.lockPlan(plan));
     Actor a = Current.actor();
-    Problem.require(a.admin() || db.planMembers(plan).contains(a.id()), 403, "无权查看该计划");
+    long responsible = id(p, p.get("responsible_user_id") == null ? "owner_id" : "responsible_user_id");
+    boolean coordinate = a.admin() || responsible == a.id();
+    Problem.require(coordinate || db.planMembers(plan).contains(a.id()), 403, "无权查看该计划");
     return row(
         "plan",
         p,
         "progress",
         db.planProgress(plan, a.id()),
         "exams",
-        db.planExamProgress(plan, a.id()));
+        db.planExamProgress(plan, a.id()),
+        "can_manage_reminders", coordinate);
   }
 }

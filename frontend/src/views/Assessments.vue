@@ -21,7 +21,8 @@ const courses = ref([]),
   form = ref({}),
   draftCount = ref(3),
   gradingDetail = ref(null),
-  gradingScores = ref({})
+  gradingScores = ref({}),
+  gradingFeedback = ref({})
 const { loading, error, reload } = useLoad(async () => {
   courses.value = await api(session.me?.roles.includes('ADMIN') ? '/courses' : '/teaching/courses')
   courses.value = courses.value.filter((c) => c.status === 'PUBLISHED')
@@ -138,6 +139,7 @@ async function openGrading(a) {
   await perform(async () => {
     gradingDetail.value = await api('/teaching/attempts/' + a.id)
     gradingScores.value = {}
+    gradingFeedback.value = {}
   })
 }
 async function grade(q) {
@@ -145,15 +147,24 @@ async function grade(q) {
     await api('/teaching/attempts/' + gradingDetail.value.attempt.id + '/grade', 'PUT', {
       questionId: q.id,
       score: Number(gradingScores.value[q.id]),
+      feedback: gradingFeedback.value[q.id] || '',
     })
     await reload()
-    gradingDetail.value = null
+    gradingDetail.value = await api('/teaching/attempts/' + gradingDetail.value.attempt.id)
   }, '评分已保存，全部主观题完成后发布最终成绩')
 }
 const parsedQuestions = computed(() =>
   (gradingDetail.value?.questions || []).map((q) => ({
     ...q,
-    snapshot: typeof q.snapshot_json === 'string' ? JSON.parse(q.snapshot_json) : q.snapshot,
+    score: q.max_score ?? q.score,
+    earned_score:
+      q.earned_score ??
+      gradingDetail.value.answers?.find((a) => a.paper_question_id === q.id)?.score ??
+      null,
+    snapshot:
+      typeof q.snapshot_json === 'string'
+        ? JSON.parse(q.snapshot_json)
+        : q.snapshot || { type: q.type, stem: q.stem, answer: q.reference_answer },
   })),
 )
 </script>
@@ -430,9 +441,7 @@ const parsedQuestions = computed(() =>
         ><template v-if="dialog === 'paper'"
           ><p class="notice span-2">
             选中
-            {{
-              selectedIds.length
-            }}
+            {{ selectedIds.length }}
             道已审核题目，试卷总分100，分值均分，余数计入首题。试卷创建时冻结题目快照。
           </p>
           <label class="field span-2"
@@ -505,7 +514,20 @@ const parsedQuestions = computed(() =>
       </footer>
     </form></Modal
   ><Modal v-if="gradingDetail" title="人工阅卷" wide @close="gradingDetail = null"
-    ><article
+    ><p class="notice">
+      {{
+        gradingDetail.attempt.status === 'GRADED'
+          ? '阅卷已完成，最终成绩已发布。'
+          : '简答题由有权限的阅卷人逐题评分；所有简答题完成评分后才发布总分与通过结果。未作答的题目也需要确认评分。'
+      }}
+    </p>
+    <p v-if="gradingDetail.attempt.status === 'GRADED'" class="section-spacer">
+      <strong
+        >总分：{{ gradingDetail.attempt.score }} 分 ·
+        {{ gradingDetail.attempt.passed ? '已通过' : '未通过' }}</strong
+      >
+    </p>
+    <article
       v-for="q in parsedQuestions.filter((q) => q.snapshot.type === 'TEXT')"
       :key="q.id"
       class="question-block"
@@ -516,21 +538,39 @@ const parsedQuestions = computed(() =>
           gradingDetail.answers.find((a) => a.paper_question_id === q.id)?.answer || '未作答'
         }}<br />参考：{{ q.snapshot.answer }}
       </p>
-      <label class="field section-spacer"
-        ><span>本题得分</span
-        ><input type="number" v-model.number="gradingScores[q.id]" min="0" :max="q.score" /></label
-      ><button
-        class="btn small section-spacer"
-        :disabled="
-          ui.busy > 0 ||
-          !Number.isInteger(gradingScores[q.id]) ||
-          gradingScores[q.id] < 0 ||
-          gradingScores[q.id] > q.score
-        "
-        @click="grade(q)"
-      >
-        保存本题评分
-      </button>
+      <p v-if="q.earned_score != null" class="notice section-spacer">
+        已评分：{{ q.earned_score }} / {{ q.score }} 分<span v-if="q.grading_feedback">
+          · {{ q.grading_feedback }}</span
+        >
+      </p>
+      <template v-else>
+        <label class="field section-spacer"
+          ><span>本题得分</span
+          ><input
+            type="number"
+            v-model.number="gradingScores[q.id]"
+            min="0"
+            :max="q.score" /></label
+        ><label class="field section-spacer"
+          ><span>评分评语</span
+          ><textarea
+            v-model="gradingFeedback[q.id]"
+            maxlength="1000"
+            placeholder="记录评分依据或改进建议（可选）"
+          /></label
+        ><button
+          class="btn small section-spacer"
+          :disabled="
+            ui.busy > 0 ||
+            !Number.isInteger(gradingScores[q.id]) ||
+            gradingScores[q.id] < 0 ||
+            gradingScores[q.id] > q.score
+          "
+          @click="grade(q)"
+        >
+          保存本题评分
+        </button>
+      </template>
     </article></Modal
   >
 </template>

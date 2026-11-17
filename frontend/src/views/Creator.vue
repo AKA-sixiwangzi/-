@@ -1,6 +1,6 @@
 <script setup>
-import { ref } from 'vue'
-import { api, upload, perform, ui, loadMe, toast } from '../lib/api.js'
+import { ref, computed } from 'vue'
+import { api, upload, perform, ui, loadMe, session } from '../lib/api.js'
 import { useLoad } from '../lib/load.js'
 import Modal from '../components/Modal.vue'
 import Icon from '../components/Icon.vue'
@@ -20,9 +20,43 @@ const rows = ref([]),
     coverageThreshold: 0.95,
     timeThreshold: 0.95,
   }),
-  material = ref({ title: '', content: '', assetId: null }),
+  material = ref(newMaterial()),
+  materialUploadName = ref(''),
   uploadName = ref(''),
   step = ref('info')
+const canSubmit = computed(
+  () =>
+    !!detail.value?.lessons.length ||
+    detail.value?.materials.some((m) => m.required === true || m.required === 1),
+)
+const materialAccept = computed(
+  () =>
+    ({
+      TEXT: '.txt,text/plain',
+      PDF: '.pdf,application/pdf',
+      PPT: '.ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    })[material.value.materialType],
+)
+function newMaterial() {
+  return {
+    title: '',
+    content: '',
+    assetId: null,
+    materialType: 'TEXT',
+    externalUrl: '',
+    required: true,
+  }
+}
+function materialLabel(type) {
+  return (
+    { TEXT: '文字 / TXT', PDF: 'PDF', PPT: 'PPT / PPTX', LINK: '网页链接' }[type || 'TEXT'] || type
+  )
+}
+function changeMaterialType() {
+  material.value.assetId = null
+  material.value.externalUrl = ''
+  materialUploadName.value = ''
+}
 const { loading, error, reload } = useLoad(async () => {
   rows.value = await api('/teaching/courses')
   await loadMe()
@@ -34,6 +68,10 @@ async function open(c) {
     ? { title: c.title, category: c.category, description: c.description }
     : { title: '', category: '经验分享', description: '' }
   detail.value = c ? await api('/courses/' + c.id) : null
+  material.value = newMaterial()
+  materialUploadName.value = ''
+  uploadName.value = ''
+  lesson.value.videoAssetId = ''
   dialog.value = true
 }
 async function saveInfo() {
@@ -52,6 +90,7 @@ async function fileChange(e) {
   const f = e.target.files?.[0]
   if (!f) return
   await perform(async () => {
+    if (!/\.(mp4|webm)$/i.test(f.name)) throw new Error('请选择 MP4 或 WebM 视频文件')
     const r = await upload(f)
     lesson.value.videoAssetId = r.id
     uploadName.value = f.name
@@ -65,6 +104,27 @@ async function fileChange(e) {
     }
     v.onerror = () => URL.revokeObjectURL(url)
   }, '视频已上传，请核对标准时长')
+}
+async function materialFileChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  await perform(async () => {
+    const allowed = { TEXT: /\.txt$/i, PDF: /\.pdf$/i, PPT: /\.(ppt|pptx)$/i }
+    if (!allowed[material.value.materialType]?.test(file.name))
+      throw new Error('文件格式与所选资料类型不符，请重新选择')
+    let text
+    if (material.value.materialType === 'TEXT') {
+      text = await file.text()
+      if (text.length > 200000) throw new Error('TXT 正文超过20万字，请精简后上传')
+    }
+    const result = await upload(file)
+    material.value.assetId = result.id
+    materialUploadName.value = file.name
+    if (text !== undefined) material.value.content = text
+    if (!material.value.title)
+      material.value.title = file.name.replace(/\.[^.]+$/, '').slice(0, 200)
+  }, '资料已上传，请保存资料')
+  e.target.value = ''
 }
 async function addLesson() {
   await perform(async () => {
@@ -83,10 +143,35 @@ async function addLesson() {
 }
 async function addMaterial() {
   await perform(async () => {
-    await api('/courses/' + selected.value.id + '/materials', 'POST', material.value)
+    const value = { ...material.value, title: material.value.title.trim() }
+    if (!value.title) throw new Error('请填写资料名称')
+    if (value.materialType === 'LINK') {
+      let url
+      try {
+        url = new URL(value.externalUrl.trim())
+      } catch {
+        throw new Error('请输入完整的 HTTP 或 HTTPS 网页地址')
+      }
+      if (
+        !['http:', 'https:'].includes(url.protocol) ||
+        !url.hostname ||
+        url.username ||
+        url.password
+      )
+        throw new Error('网页链接仅支持不含账号密码的 HTTP 或 HTTPS 地址')
+      value.externalUrl = url.href
+      value.assetId = null
+    } else {
+      delete value.externalUrl
+      if (value.materialType !== 'TEXT' && !value.assetId) throw new Error('请先上传对应资料文件')
+      if (value.materialType === 'TEXT' && !value.content.trim() && !value.assetId)
+        throw new Error('请填写文字正文或上传 TXT 附件')
+    }
+    await api('/courses/' + selected.value.id + '/materials', 'POST', value)
     detail.value = await api('/courses/' + selected.value.id)
-    material.value = { title: '', content: '', assetId: null }
-  }, '文字资料已保存')
+    material.value = newMaterial()
+    materialUploadName.value = ''
+  }, '课程资料已保存')
 }
 async function archive(c) {
   if (window.confirm('下架后员工将无法继续学习，确认下架？'))
@@ -117,7 +202,8 @@ async function submit(c) {
     <div>
       <h3>每一位员工，都可以成为内训师</h3>
       <p>
-        创建课程 → 完善视频与资料 → 提交组织发展部审核 → 发布后兼任内训师，在同一账号查看课程学习情况。
+        创建课程 → 添加视频、文档或网页资料 → 提交审核 →
+        发布后兼任内训师，在同一账号查看课程学习情况。
       </p>
     </div>
   </div>
@@ -147,7 +233,8 @@ async function submit(c) {
                   ><button class="text-link" :disabled="ui.busy > 0" @click="submit(c)">
                     提交审核
                   </button></template
-                ><RouterLink v-else :to="'/courses/' + c.id" class="text-link">预览课程</RouterLink
+                ><RouterLink v-else :to="'/courses/' + c.id + '?preview=1'" class="text-link"
+                  >预览课程</RouterLink
                 ><RouterLink v-if="c.status === 'PUBLISHED'" to="/teaching" class="text-link"
                   >学习统计</RouterLink
                 ><button
@@ -181,13 +268,13 @@ async function submit(c) {
         :class="{ active: step === 'content' }"
         @click="step = 'content'"
       >
-        02 视频与章节</button
+        02 视频章节（可选）</button
       ><button
         :disabled="!selected"
         :class="{ active: step === 'materials' }"
         @click="step = 'materials'"
       >
-        03 文字资料
+        03 课程资料
       </button>
     </div>
     <form v-if="step === 'info'" @submit.prevent="saveInfo">
@@ -218,13 +305,13 @@ async function submit(c) {
       </div>
       <footer class="form-actions">
         <button class="btn" :disabled="ui.busy > 0">
-          保存并完善章节<Icon name="arrow" :size="16" />
+          保存并添加学习内容<Icon name="arrow" :size="16" />
         </button>
       </footer>
     </form>
     <template v-if="step === 'content'"
       ><div class="notice">
-        标准时长自动尝试读取视频元数据，请核对。课程审核时还需核验视频内容与时长。
+        视频课程需核对标准时长与有效播放要求。也可跳过视频，直接添加必读文档、文字或网页资料，创建纯资料课程。
       </div>
       <div class="caption" v-for="l in detail?.lessons" :key="l.id">
         {{ l.sort_order }}. {{ l.title }} · {{ l.duration_seconds }} 秒
@@ -271,33 +358,155 @@ async function submit(c) {
         <footer class="form-actions">
           <button class="btn outline" :disabled="ui.busy > 0 || !lesson.videoAssetId">
             添加此章节</button
-          ><button type="button" class="btn" @click="step = 'materials'">下一步：文字资料</button>
+          ><button type="button" class="btn" @click="step = 'materials'">下一步：课程资料</button>
         </footer>
       </form></template
     ><template v-if="step === 'materials'"
       ><p class="notice">
-        课程助手只使用已录入的文字资料。请提供准确讲稿或要点；本版不会自动转写视频。
+        支持文字、PDF、PPT/PPTX
+        和网页链接。无需视频也能开课，至少添加一份必读资料即可提交。阅读完成需员工主动确认，不统计为视频播放时长。
       </p>
-      <div v-for="m in detail?.materials" :key="m.id" class="caption">已添加：{{ m.title }}</div>
+      <p v-if="session.mode === 'demo'" class="notice gold">
+        演示上传文件仅在当前页面有效，刷新后需重新上传；资料名称和学习记录会保留。正式模式由服务器保存文件。
+      </p>
+      <div v-for="m in detail?.materials" :key="m.id" class="saved-material">
+        <Icon :name="m.material_type === 'LINK' ? 'external' : 'file'" :size="16" />
+        <div>
+          <strong>{{ m.title }}</strong
+          ><small
+            >{{ materialLabel(m.material_type) }}{{ m.file_name ? ' · ' + m.file_name : '' }}</small
+          >
+        </div>
+        <span class="tag">{{ m.required ? '必读' : '选读' }}</span>
+      </div>
       <form class="section-spacer" @submit.prevent="addMaterial">
-        <label class="field"
-          ><span>资料名称</span><input v-model="material.title" required maxlength="200" /></label
-        ><label class="field section-spacer"
-          ><span>课程讲稿 / 文字要点</span
-          ><textarea v-model="material.content" required maxlength="200000" rows="7" />
-        </label>
+        <div class="form-grid">
+          <label class="field"
+            ><span>资料类型</span
+            ><select
+              v-model="material.materialType"
+              :disabled="ui.busy > 0"
+              @change="changeMaterialType"
+            >
+              <option value="TEXT">文字 / TXT</option>
+              <option value="PDF">PDF 文档</option>
+              <option value="PPT">PPT / PPTX 课件</option>
+              <option value="LINK">网页链接</option>
+            </select></label
+          >
+          <label class="material-required"
+            ><input type="checkbox" v-model="material.required" />必读资料（计入课程完成）</label
+          >
+          <label class="field span-2"
+            ><span>资料名称</span><input v-model="material.title" required maxlength="200"
+          /></label>
+          <label v-if="material.materialType === 'LINK'" class="field span-2">
+            <span>网页地址</span
+            ><input
+              v-model="material.externalUrl"
+              type="url"
+              required
+              maxlength="2048"
+              placeholder="https://example.com/training"
+            />
+            <small>仅支持 HTTP / HTTPS；请使用员工有权限访问的学习页面。</small>
+          </label>
+          <label v-else class="upload-zone span-2" :key="material.materialType">
+            <Icon name="upload" :size="24" />
+            <p>
+              {{
+                materialUploadName ||
+                (material.materialType === 'TEXT'
+                  ? '选择 TXT 文件（可选，UTF-8 编码）'
+                  : '选择 ' + materialLabel(material.materialType) + ' 文件')
+              }}
+            </p>
+            <input
+              type="file"
+              :accept="materialAccept"
+              :disabled="ui.busy > 0"
+              @change="materialFileChange"
+            />
+            <small v-if="materialUploadName"
+              >已上传：{{ materialUploadName }}，保存资料后才会加入课程。</small
+            >
+          </label>
+          <label class="field span-2"
+            ><span>{{
+              material.materialType === 'TEXT' ? '课程文字正文' : '补充讲稿 / 内容摘要（可选）'
+            }}</span
+            ><textarea
+              v-model="material.content"
+              :required="material.materialType === 'TEXT' && !material.assetId"
+              maxlength="200000"
+              rows="6"
+              placeholder="课程助手使用这里的文字内容答疑；PDF、PPT、网页和视频不会自动提取全文。"
+            />
+          </label>
+        </div>
+        <p v-if="material.materialType === 'PPT'" class="caption section-spacer">
+          PPT / PPTX 提供下载后用 Office 或兼容软件打开，不提供浏览器原生翻页预览。
+        </p>
         <footer class="form-actions">
-          <button class="btn outline" :disabled="ui.busy > 0">保存文字资料</button
+          <button class="btn outline" :disabled="ui.busy > 0">保存课程资料</button
           ><button
             type="button"
             class="btn"
-            :disabled="ui.busy > 0 || !detail?.lessons.length"
+            :disabled="ui.busy > 0 || !canSubmit"
             @click="submit(selected)"
           >
             提交课程审核
           </button>
         </footer>
+        <p v-if="!canSubmit" class="caption">
+          请先保存至少一个视频章节或一份必读资料，再提交审核。
+        </p>
       </form></template
     ></Modal
   >
 </template>
+<style scoped>
+.saved-material {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #edf1f7;
+  color: #003f98;
+}
+.saved-material > div {
+  flex: 1;
+  min-width: 0;
+}
+.saved-material strong {
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.saved-material small {
+  display: block;
+  color: #8294ad;
+  font-size: 10px;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.material-required {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #61748e;
+  padding-top: 23px;
+}
+.upload-zone small,
+.field small {
+  color: #8093ad;
+  font-size: 10px;
+  line-height: 1.8;
+}
+@media (max-width: 600px) {
+  .material-required {
+    padding-top: 0;
+  }
+}
+</style>

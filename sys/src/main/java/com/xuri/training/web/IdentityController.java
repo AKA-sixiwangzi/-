@@ -8,6 +8,7 @@ import com.xuri.training.security.*;
 import com.xuri.training.service.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import java.util.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -102,6 +103,19 @@ public class IdentityController {
     validateOrganization(r.departmentId(), r.positionId(), r.gradeId());
     return service.create(
         r.username(), r.password(), r.displayName(), r.departmentId(), r.positionId(), r.gradeId());
+  }
+
+  public record Employee(
+      @NotBlank @Size(max = 100) String displayName,
+      @Positive Long departmentId,
+      @Positive Long positionId,
+      @Positive Long gradeId) {}
+
+  @PostMapping("/admin/employees")
+  public Object employee(@Valid @RequestBody Employee r) {
+    Current.actor().requireAdmin();
+    validateOrganization(r.departmentId(), r.positionId(), r.gradeId());
+    return service.employee(r.displayName(), r.departmentId(), r.positionId(), r.gradeId());
   }
 
   @PutMapping("/admin/users/{id}/roles")

@@ -37,6 +37,15 @@ public class AuthInterceptor implements AsyncHandlerInterceptor {
     Current.clear();
     Long id = users.authenticate(hash(bearer(r)));
     Problem.require(id != null, 401, "登录已失效");
+    String path = r.getRequestURI().substring(r.getContextPath().length());
+    boolean passwordAction =
+        "GET".equals(r.getMethod()) && "/api/me".equals(path)
+            || "PUT".equals(r.getMethod()) && "/api/auth/password".equals(path)
+            || "POST".equals(r.getMethod()) && "/api/auth/logout".equals(path);
+    Problem.require(
+        !Boolean.TRUE.equals(users.mustChangePassword(id)) || passwordAction,
+        403,
+        "首次登录请先修改初始密码");
     Current.set(new Actor(id, users.roles(id)));
     return true;
   }
